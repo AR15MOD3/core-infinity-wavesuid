@@ -5,7 +5,7 @@ TelyinCore 的鸣潮（Wuthering Waves）查询插件：把 [XutheringWavesUID](
 
 > 非官方移植。不是 Telyin 的官方内置插件，也不代表上游作者对本项目背书。
 
-- 版本：0.2.1
+- 版本：0.2.2
 - 适用：TelyinCore Infinity API 1
 - 许可：本仓库代码 GPL-3.0-or-later；`service/rover/` 来自上游，GPL-3.0（见 [NOTICE.md](NOTICE.md)）
 
@@ -89,9 +89,9 @@ Linux / macOS：
 
 1. **第一次用账号类功能要先绑定**：`ww绑定<9位UID>`；查体力/签到还要先 `ww登录`（库街区）。
    不绑定也能查的：`ww帮助`、`ww日历`、卡池倒计时、角色/武器/声骸百科等。
-2. **图片到不了 QQ**：TelyinCore 的 QQ 通道目前只能回发"收到过的图"。回执里给的是
-   `http://127.0.0.1:9777/api/media/...` 链接，浏览器能打开。要真发图需要内核增加出站媒体能力
-   （见 `docs/DESIGN.md`）。
+2. **图片要发到 QQ，得再装一个叠加插件**：[`core-infinity-waves-qq-image`](https://github.com/AR15MOD3/core-infinity-waves-qq-image)。
+   它依赖本插件与 `core-infinity-qq`，把回执里的卡片链接变成 QQ 图片；不装的话，回执里给的是
+   `http://127.0.0.1:9777/api/media/...` 链接，浏览器能打开。
 
 ## 已知限制
 
