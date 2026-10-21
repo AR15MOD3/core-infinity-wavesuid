@@ -29,6 +29,10 @@ DEFAULT_TIMEOUT = 90.0
 START_TIMEOUT = 120.0
 MAX_RECEIPT = 8000
 
+#: 命令表里带这些字符的，是上游的正则触发器（`ww^(?P<char>…）` 那种），
+#: 给模型看没有意义 —— 帮助里只列能照着念的普通命令词。
+_REGEX_CHARS = set("\\^$()[]{}|?*+")
+
 
 def _merged(base: dict, overlay: dict) -> dict:
     out = dict(base)
@@ -40,20 +44,31 @@ def _merged(base: dict, overlay: dict) -> dict:
     return out
 
 
-def _config(folder: Path) -> dict[str, Any]:
-    """读 config.example.json + config.json（后者覆盖前者）。每次调用都重读，配置重载即生效。"""
+def _config(folder: Path) -> tuple[dict[str, Any], list[str]]:
+    """读 config.example.json + config.json（后者覆盖前者）。
+
+    交回 (配置, 问题清单)。**读坏了要说出来** —— 静默退回默认值会让
+    「我明明开了 autoStart」变成一句无从查起的话（规范：失败不许伪装成成功）。
+    """
     got: dict[str, Any] = {}
+    problems: list[str] = []
     for name in ("config.example.json", "config.json"):
         path = folder / name
         if not path.is_file():
             continue
         try:
             one = json.loads(path.read_text(encoding="utf-8-sig"))
-        except (OSError, ValueError):
+        except ValueError as exc:
+            problems.append(f"{name} 不是合法 JSON（{exc}），已忽略")
             continue
-        if isinstance(one, dict):
-            got = _merged(got, one)
-    return got
+        except OSError as exc:
+            problems.append(f"{name} 读不出来（{exc}），已忽略")
+            continue
+        if not isinstance(one, dict):
+            problems.append(f"{name} 的内容不是 JSON 对象，已忽略")
+            continue
+        got = _merged(got, one)
+    return got, problems
 
 
 def _http(url: str, payload: Any = None, timeout: float = DEFAULT_TIMEOUT) -> Any:
@@ -160,9 +175,12 @@ def create(ctx):
 
     child: dict[str, Any] = {"proc": None}
     guard = threading.Lock()
+    problems_seen: list[str] = []
 
     def config() -> dict[str, Any]:
-        return _config(folder)
+        got, problems = _config(folder)
+        problems_seen[:] = problems
+        return got
 
     def base() -> str:
         got = config()
@@ -200,40 +218,66 @@ def create(ctx):
         except Exception as exc:  # noqa: BLE001 —— 必须变成一句可读的回执
             return (f"鸣潮服务不可用：{_why(exc)}。"
                     "请确认 waves service 已启动（或在配置里打开 autoStart）。")
-        return _receipt(answer, base(), str(got.get("mediaFormat") or "png"))
+        return _receipt(answer, base(), str(got.get("mediaFormat") or "html"))
 
     def help_command(topic: str = "", **rest) -> str:
         word = str(topic or "").strip()
+        # 没给主题时，直接借上游那张「ww帮助」卡片 —— 那是人写过的目录，
+        # 比自己拼一遍原始的触发器表可读得多。
+        if not word:
+            try:
+                got = _http(base() + "/api/chat",
+                            {"command": "ww帮助",
+                             "scene": str(config().get("scene") or "group")},
+                            timeout=float(config().get("commandTimeout") or DEFAULT_TIMEOUT))
+                for seg in got.get("segments") or []:
+                    if not isinstance(seg, dict):
+                        continue
+                    digest = str(seg.get("digest") or "").strip()
+                    if seg.get("type") in ("html", "image") and digest:
+                        return ("命令总览（来自上游「ww帮助」）：\n" + digest
+                                + "\n\n要看某一类命令词，给 waves_help 一个 topic，"
+                                  "例如「深渊」「抽卡」「排行」「体力」。")
+            except Exception:  # noqa: BLE001 —— 卡片这条路不通就退回查命令表
+                pass
+
         try:
             got = _http(base() + "/api/commands", None, 15)
         except Exception as exc:  # noqa: BLE001
             return f"鸣潮服务不可用：{_why(exc)}。"
-        rows = [row for row in (got.get("commands") or []) if isinstance(row, dict)]
-        if word:
-            rows = [row for row in rows
-                    if word in str(row.get("sv") or "")
-                    or word in str(row.get("trigger") or "")]
-        seen: set[str] = set()
+
         triggers: list[str] = []
-        for row in rows:
+        for row in got.get("commands") or []:
+            if not isinstance(row, dict):
+                continue
             key = str(row.get("trigger") or "").strip()
-            if key and key not in seen:
-                seen.add(key)
+            if not key or any(ch in _REGEX_CHARS for ch in key):
+                continue
+            if word and word not in key:
+                continue
+            if key not in triggers:
                 triggers.append(key)
+
         if not triggers:
-            return (f"没有匹配「{word}」的命令。" if word
-                    else "服务没有返回命令表。")
-        head = f"共 {len(triggers)} 条命令" + (f"（匹配「{word}」）" if word else "") + "："
-        body = ["· " + one for one in triggers[:80]]
-        if len(triggers) > 80:
-            body.append(f"…另有 {len(triggers) - 80} 条，给 topic 缩小范围。")
-        return "\n".join([head, *body])
+            return (f"没有匹配「{word}」的普通命令词。可以不带 topic 调一次，"
+                    "看完整目录；上游的正则写法也仍然可用，只是这里不列。"
+                    if word else "服务没有返回命令表。")
+
+        head = (f"共 {len(triggers)} 条命令" if not word else
+                f"与「{word}」有关的命令 {len(triggers)} 条")
+        body = ["· " + one for one in triggers[:40]]
+        if len(triggers) > 40:
+            body.append(f"…另有 {len(triggers) - 40} 条，把 topic 写细一点。")
+        return "\n".join([head + "：", *body])
 
     def status(**rest) -> str:
         got = health(3.0)
+        config()  # 读一遍，把配置问题收进 problems_seen
+        extra = ("\n配置问题：" + "；".join(problems_seen)) if problems_seen else ""
         if got is None:
             return (f"waves service 没起来（{base()}）。"
-                    "检查服务是否运行，或打开 autoStart 并填好 python / serviceDir。")
+                    "检查服务是否运行，或打开 autoStart 并填好 python / serviceDir。"
+                    + extra)
         proc = child.get("proc")
         mine = "是" if proc is not None and proc.poll() is None else "否"
         return ("waves service 在线："
@@ -249,7 +293,9 @@ def create(ctx):
                 return
             got = config()
             if not got.get("autoStart"):
-                log("waves service 没有运行；autoStart 关闭 —— 工具会如实报不可用")
+                log("waves service 没有运行；autoStart 关闭 —— 工具会如实报不可用"
+                    + (("（配置问题：" + "；".join(problems_seen) + "）")
+                       if problems_seen else ""))
                 return
             python = str(got.get("python") or "").strip() or sys.executable
             service = Path(str(got.get("serviceDir") or "").strip()
@@ -315,6 +361,13 @@ def create(ctx):
                     proc.wait(5)
                 except subprocess.TimeoutExpired:
                     pass
+            # 进程退掉之后，监听套接字收尾还要一小会儿（Windows 上实测 ~0.2s）——
+            # 等它真的不再应答，再报"已停止"，免得停用后立刻重载时撞上旧监听。
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                if health(0.4) is None:
+                    break
+                time.sleep(0.1)
             log("waves service 已停止")
 
         def tools(self):
@@ -322,12 +375,14 @@ def create(ctx):
 
             return [ToolDef(
                 name="waves_command",
-                description="执行一条鸣潮（Wuthering Waves）命令，例如「ww椿面板」"
-                            "「ww角色查询 椿」「ww深渊」「ww抽卡记录」「ww体力」。"
+                description="执行一条鸣潮（Wuthering Waves）命令，例如「ww角色面板 椿」"
+                            "「ww深渊」「ww抽卡记录」「ww体力」「ww日历」。"
                             "命令词不确定时先用 waves_help 查。"
+                            "账号类功能第一次要先绑定：`ww绑定<9位UID>`；"
+                            "查体力/签到还要先 `ww登录`。"
                             "本工具既能查，也能执行绑定、签到、导入抽卡记录这类"
                             "**会真实改变账号状态**的操作——做这些之前先跟用户确认。"
-                            "返回正文、卡片上的文字和可打开的图片链接。",
+                            "返回正文、卡片上的文字和可打开的链接。",
                 parameters={
                     "type": "object",
                     "properties": {
@@ -352,7 +407,8 @@ def create(ctx):
             ), ToolDef(
                 name="waves_help",
                 description="查鸣潮命令词：不知道「ww」后面该接什么时先调它。"
-                            "topic 可填角色名、功能词（面板/深渊/抽卡/体力/排行/签到）或命令前缀。",
+                            "不给 topic 时返回上游那张帮助目录；给 topic（如「深渊」「抽卡」"
+                            "「排行」「体力」「面板」）则列出相关的普通命令词。",
                 parameters={
                     "type": "object",
                     "properties": {

@@ -1,10 +1,16 @@
 # TelyinCore / 运行时产物
 config.json
 .config-backups/
-service/
 .venv/
 data/
 logs/
+
+# 服务端装出来的东西（rover / tools / pyproject 是要入库的）
+service/.venv/
+service/data/
+service/logs/
+service/plugins/*
+!service/plugins/__init__.py
 
 # Python
 __pycache__/

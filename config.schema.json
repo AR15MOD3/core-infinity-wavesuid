@@ -40,12 +40,12 @@
     "mediaFormat": {
       "type": "string",
       "title": "卡片链接形式",
-      "description": "png 需要服务端装好 playwright 与 chromium；没装则选 html（浏览器照样能看）。",
+      "description": "html 开箱即用（浏览器打开）；png 需要服务端另装 Playwright 与 Chromium，否则链接会 500。",
       "enum": [
-        "png",
-        "html"
+        "html",
+        "png"
       ],
-      "default": "png"
+      "default": "html"
     },
     "scene": {
       "type": "string",

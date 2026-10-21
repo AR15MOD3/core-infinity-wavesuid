@@ -4,7 +4,7 @@
   "autoStart": false,
   "python": "",
   "serviceDir": "",
-  "mediaFormat": "png",
+  "mediaFormat": "html",
   "scene": "group",
   "commandTimeout": 90
 }

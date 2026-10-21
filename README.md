@@ -5,60 +5,53 @@ TelyinCore 的鸣潮（Wuthering Waves）查询插件：把 [XutheringWavesUID](
 
 > 非官方移植。不是 Telyin 的官方内置插件，也不代表上游作者对本项目背书。
 
-- 版本：0.1.0（桥接骨架）
+- 版本：0.2.0
 - 适用：TelyinCore Infinity API 1
-- 许可：GPL-3.0-or-later（上游是 GPL-3.0-or-later，桥接层与之一致，见 [LICENSE](LICENSE)）
+- 许可：本仓库代码 GPL-3.0-or-later；`service/rover/` 来自上游，GPL-3.0（见 [NOTICE.md](NOTICE.md)）
+
+![帮助卡片](docs/images/help-card.jpg)
+
+上面这张就是 `ww帮助` 的真实输出：插件把卡片文字抽出来给模型，同时给一个能打开的图片链接
+（`mediaFormat=png` 时的样子）。
 
 ## 它怎么工作
 
 ```
-模型 ──waves_command("ww椿面板")──▶ index.py ──HTTP 127.0.0.1:9777──▶ waves service
-                                        ◀── summary / segments ───────┘
-模型 ◀── 回执：正文 + 卡片文字 + 图片链接
+模型 ──waves_command("ww角色面板 椿")──▶ index.py ──HTTP 127.0.0.1:9777──▶ waves service
+                                            ◀── summary / segments ───────┘
+模型 ◀── 回执：正文 + 卡片文字 + 可打开的链接
 ```
 
-- **桥接层**（本仓库）：一个 TelyinCore 插件，只做三件事——拉起服务、转发命令、把结果折成回执。
-  它只用标准库，不 import 上游代码。
-- **waves service**（独立进程、独立虚拟环境）：上游 XutheringWavesUID + 一层把 `gsuid_core`
-  换成 `rover` 的兼容层，对外是本地 FastAPI（`/api/chat`、`/api/commands`、`/api/health`）。
+- **桥接层**（本仓库 `index.py`）：只做三件事——拉起服务、转发命令、把结果折成回执。只用标准库。
+- **waves service**（`service/`，独立进程 + 独立 venv）：上游 XutheringWavesUID，加上一层把
+  `gsuid_core` 换成 `rover` 的兼容层，对外是本地 FastAPI（`/api/chat`、`/api/commands`、`/api/health`）。
 
-这样切开的理由：上游要 SQLAlchemy / FastAPI / Playwright 这一整套，塞进 TelyinCore 的进程会污染它的
-依赖树；分进程后服务挂了只影响这一个插件，许可边界也干净。
-
-## 现在的状态
-
-- ✅ 插件清单、配置表单、`waves_command` / `waves_help` / `waves_status` 三个工具
-- ✅ 服务随插件启停（`autoStart`），停用会收掉子进程
-- ⏳ 服务端安装脚本（把上游 + rover 装到独立 venv）还没进本仓库——见「准备服务」
-- ⏳ 图片发到 QQ：TelyinCore 目前没有"插件产图 → 会话"的通道，回执里给的是可点的本地链接
-- ⏳ 账号类命令（绑定 / 签到 / 抽卡导入）尚未逐条验收
+为什么切开：上游要 SQLAlchemy / FastAPI / OpenCV 这一整套，塞进 TelyinCore 的进程会污染它的依赖树；
+分进程后服务挂了只影响这一个插件，许可边界也干净。
 
 ## 安装
 
-1. 把本仓库放进 TelyinCore 的插件目录：
+Windows（在插件仓库根目录）：
 
-   ```text
-   <TelyinCore>/extensions/core-infinity-wavesuid/
-   ```
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+# 想要 PNG 卡片（而不是 HTML 链接）就加 -WithPlaywright
+```
 
-2. 准备 waves service（二选一）：
-   - **借现成的**：把 [dsh-plugin-waves](https://github.com/Loping151/dsh-plugin-waves) 的 `service/`
-     目录克隆下来，按它的 README 建好虚拟环境、拉上游插件；
-   - **等本仓库的安装脚本**（P0 阶段补上，会把 XutheringWavesUID / RoverSign / ScoreEcho
-     拉到 `service/plugins/` 并装依赖）。
+Linux / macOS：
 
-3. 复制配置并填写：
+```sh
+./install.sh              # 加 --playwright 装 Chromium
+```
 
-   ```sh
-   cp config.example.json config.json
-   ```
+脚本会：装 uv/git 检查 → 建 `service/.venv`（Python 3.10–3.13）→ 装依赖 →
+拉 XutheringWavesUID / RoverSign / ScoreEcho → 写插件 `config.json`（`autoStart = true`）。
 
-4. 打开插件配置页，至少填这两项：
-   - `python`：waves-service 虚拟环境里的解释器绝对路径（如 `D:\TelyinCore\waves-service\.venv\Scripts\python.exe`）
-   - `serviceDir`：包含 `rover/main.py` 的目录
-   - 想让插件自己起服务，就把 `autoStart` 打开
+它不会后台常驻、不会碰你的账号；账号数据只在 `service/data/` 里。
 
-5. 启用插件。模型那边会多出 `waves_command` / `waves_help` / `waves_status` 三个工具。
+首次启动服务时会从镜像下载游戏素材（数百 MB，后台进行，日志在 `service/data/logs/`）。
+
+然后把仓库放进 `<TelyinCore>/extensions/core-infinity-wavesuid/`，在插件页启用即可。
 
 ## 配置
 
@@ -66,37 +59,45 @@ TelyinCore 的鸣潮（Wuthering Waves）查询插件：把 [XutheringWavesUID](
 |---|---|---|
 | `host` | 服务监听地址，只允许本机 | `127.0.0.1` |
 | `port` | 服务端口 | `9777` |
-| `autoStart` | 由插件拉起服务，停用时一并结束 | `false` |
-| `python` | 服务用解释器；留空用 TelyinCore 自己的（通常没有服务依赖） | 空 |
-| `serviceDir` | 包含 `rover/main.py` 的目录；留空用插件目录下 `service/` | 空 |
-| `mediaFormat` | 卡片链接给 `png` 还是 `html`；png 需要服务端装好 Playwright + Chromium | `png` |
+| `autoStart` | 由插件拉起服务，停用/重载时一并结束 | `false`（安装脚本会写成 `true`） |
+| `python` | 服务用解释器（`service/.venv` 里那个） | 空 |
+| `serviceDir` | 包含 `rover/main.py` 的目录 | 空（不填则用插件目录下 `service/`） |
+| `mediaFormat` | 卡片链接给 `html` 还是 `png`；png 需要 Playwright | `html` |
 | `scene` | `group` / `direct`，少数命令需要 direct | `group` |
 | `commandTimeout` | 单条命令超时（秒） | `90` |
+
+配置写坏（非法 JSON）时，`waves_status` 会明说哪一份坏了，不会静默退回默认值。
 
 ## 工具
 
 | 工具 | 说明 |
 |---|---|
 | `waves_command` | 执行一条鸣潮命令，回执含正文、卡片文字与链接。绑定/签到/导入会真实改变账号状态，调用前应先与用户确认 |
-| `waves_help` | 查命令词，可按关键词过滤 |
-| `waves_status` | 服务是否在线、命令条数、是否由本插件启动 |
+| `waves_help` | 不给 topic 时返回上游那张帮助目录；给 topic（深渊/抽卡/排行/体力…）则列出相关命令词 |
+| `waves_status` | 服务是否在线、命令条数、是否由本插件启动、配置有没有问题 |
 
-为什么不把 86 条命令拆成 86 个工具：上游接口本身就是命令式的（前缀 + 别名 + 模糊匹配），
-拆开等于重写一遍解析逻辑，还会把工具表撑大、增加模型选错的机会。一个命令总线能跟着上游升级。
+为什么不做成 86 个工具：上游接口本身就是命令式的（前缀 + 别名 + 正则），拆开等于重写一遍解析；
+一个命令总线能跟着上游升级，命令词变了只改帮助文本。
+
+## 用之前要知道的两件事
+
+1. **第一次用账号类功能要先绑定**：`ww绑定<9位UID>`；查体力/签到还要先 `ww登录`（库街区）。
+   不绑定也能查的：`ww帮助`、`ww日历`、卡池倒计时、角色/武器/声骸百科等。
+2. **图片到不了 QQ**：TelyinCore 的 QQ 通道目前只能回发"收到过的图"。回执里给的是
+   `http://127.0.0.1:9777/api/media/...` 链接，浏览器能打开。要真发图需要内核增加出站媒体能力
+   （见 `docs/DESIGN.md`）。
 
 ## 已知限制
 
-- **图片到不了 QQ**：TelyinCore 的 QQ 通道目前只支持回发"收到过的图"。回执里给的是
-  `http://127.0.0.1:9777/api/media/...` 链接，浏览器能打开；要真发图需要内核增加出站媒体能力（见 `docs/DESIGN.md`）。
-- **服务要自己装**：首次运行要拉上游仓库、装 30 多个依赖、下载游戏素材（数百 MB）。仓库里不塞这些东西。
-- **账号类命令**需要库街区 token；token 由服务存在它自己的目录里，不进插件目录、不回显。
-- **不做安全隔离**：插件与上游都在本机以当前用户身份运行，启用前请自行确认来源（规范 §1 同款提醒）。
+- 服务要自己装（首次几百 MB）：仓库里不塞上游代码、素材和模型。
+- `service/rover/` 是固定版本的上游兼容层，上游更新需要按 `service/UPSTREAM.md` 同步。
+- 不做安全隔离：插件与上游都在本机以当前用户身份运行，启用前请自行确认来源。
+- 上游命令里带正则触发器的部分（如按角色名模糊匹配）`waves_help` 不列，但照样能用。
 
 ## 许可与署名
 
-- 本仓库（桥接层）以 **GPL-3.0-or-later** 发布。
-- 运行时依赖的 [XutheringWavesUID](https://github.com/Loping151/XutheringWavesUID) 同样为
-  GPL-3.0-or-later，作者 tyql688 / Loping151；`rover` 兼容层来自
-  [dsh-plugin-waves](https://github.com/Loping151/dsh-plugin-waves)。
-- 详细来源与改动说明见 [NOTICE.md](NOTICE.md)。
-- TelyinCore 本体另有其许可；本插件是独立附属插件，不包含 TelyinCore 的官方代码。
+- 本仓库桥接层：**GPL-3.0-or-later**。
+- `service/rover/`、`service/tools/`：来自 [dsh-plugin-waves](https://github.com/Loping151/dsh-plugin-waves)，
+  **GPL-3.0**，作者 Loping151，固定 commit 与同步方法见 [service/UPSTREAM.md](service/UPSTREAM.md)。
+- 运行时拉取的 XutheringWavesUID / RoverSign / ScoreEcho：GPL-3.0-or-later，作者 tyql688 / Loping151。
+- 两部分一起分发时按 GPL-3.0 理解。详见 [NOTICE.md](NOTICE.md)。
