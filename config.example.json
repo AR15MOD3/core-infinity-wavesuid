@@ -1,0 +1,10 @@
+{
+  "host": "127.0.0.1",
+  "port": 9777,
+  "autoStart": false,
+  "python": "",
+  "serviceDir": "",
+  "mediaFormat": "png",
+  "scene": "group",
+  "commandTimeout": 90
+}

@@ -1,0 +1,69 @@
+{
+  "type": "object",
+  "properties": {
+    "host": {
+      "type": "string",
+      "title": "服务地址",
+      "description": "waves service 的监听地址；只允许本机或 localhost。",
+      "enum": [
+        "127.0.0.1",
+        "localhost"
+      ],
+      "default": "127.0.0.1"
+    },
+    "port": {
+      "type": "integer",
+      "title": "端口",
+      "description": "waves service 监听端口，默认 9777。",
+      "minimum": 1024,
+      "maximum": 65535,
+      "default": 9777
+    },
+    "autoStart": {
+      "type": "boolean",
+      "title": "随插件启动服务",
+      "description": "由本插件拉起 waves service 子进程；插件停用或重载时会结束它。关闭则视为服务由你手工启动。",
+      "default": false
+    },
+    "python": {
+      "type": "string",
+      "title": "服务用 Python 解释器",
+      "description": "waves-service 虚拟环境里的 python.exe 绝对路径；留空则用 TelyinCore 自己的解释器（通常没有服务依赖，不推荐）。",
+      "default": ""
+    },
+    "serviceDir": {
+      "type": "string",
+      "title": "服务目录",
+      "description": "包含 rover/main.py 的目录；留空则用插件目录下的 service/。",
+      "default": ""
+    },
+    "mediaFormat": {
+      "type": "string",
+      "title": "卡片链接形式",
+      "description": "png 需要服务端装好 playwright 与 chromium；没装则选 html（浏览器照样能看）。",
+      "enum": [
+        "png",
+        "html"
+      ],
+      "default": "png"
+    },
+    "scene": {
+      "type": "string",
+      "title": "会话类型",
+      "description": "少数命令（如获取 ck）需要 direct。",
+      "enum": [
+        "group",
+        "direct"
+      ],
+      "default": "group"
+    },
+    "commandTimeout": {
+      "type": "integer",
+      "title": "命令超时（秒）",
+      "description": "单条命令最长等待；首次运行要下载素材时可能需要调大。",
+      "minimum": 5,
+      "maximum": 600,
+      "default": 90
+    }
+  }
+}

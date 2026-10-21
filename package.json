@@ -1,0 +1,21 @@
+{
+  "name": "core-infinity-wavesuid",
+  "version": "0.1.0",
+  "author": "AR15MOD3",
+  "license": "GPL-3.0-or-later",
+  "description": "把 XutheringWavesUID 的鸣潮查询接进 TelyinCore：角色与武器查询、面板、深渊、抽卡、体力、排行。非官方移植。",
+  "keywords": [
+    "core-infinity",
+    "telyincore",
+    "wuthering-waves",
+    "鸣潮"
+  ],
+  "main": "index.py",
+  "telyincore": {
+    "kind": "infinity",
+    "api": 1,
+    "displayName": "鸣潮查询",
+    "icon": "grid",
+    "configSchema": "config.schema.json"
+  }
+}

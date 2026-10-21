@@ -1,0 +1,18 @@
+# TelyinCore / 运行时产物
+config.json
+.config-backups/
+service/
+.venv/
+data/
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# 日志与临时文件
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
