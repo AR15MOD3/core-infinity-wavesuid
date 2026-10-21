@@ -5,7 +5,7 @@ TelyinCore 的鸣潮（Wuthering Waves）查询插件：把 [XutheringWavesUID](
 
 > 非官方移植。不是 Telyin 的官方内置插件，也不代表上游作者对本项目背书。
 
-- 版本：0.2.2
+- 版本：0.2.3
 - 适用：TelyinCore Infinity API 1
 - 许可：本仓库代码 GPL-3.0-or-later；`service/rover/` 来自上游，GPL-3.0（见 [NOTICE.md](NOTICE.md)）
 
