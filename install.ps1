@@ -1,13 +1,14 @@
 ﻿# Install the waves service for core-infinity-wavesuid (Windows).
 #
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
+#   powershell -ExecutionPolicy Bypass -File .\install.ps1 -ServiceDir D:\TelyinCore\waves-service
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1 -WithPlaywright
 #
 # What it does:
 #   1. makes sure uv + git exist
-#   2. creates service\.venv (Python 3.10-3.13)
+#   2. creates <ServiceDir>\.venv (Python 3.10-3.13)
 #   3. installs service dependencies
-#   4. clones XutheringWavesUID / RoverSign / ScoreEcho into service\plugins
+#   4. clones XutheringWavesUID / RoverSign / ScoreEcho into <ServiceDir>\plugins
 #   5. writes the plugin config.json (paths + autoStart) if you don't have one
 #   6. optionally installs Playwright + Chromium (only needed for PNG cards)
 #
@@ -15,6 +16,7 @@
 
 [CmdletBinding()]
 param(
+    [string]$ServiceDir = "",
     [string]$PythonVersion = "3.11",
     [switch]$WithPlaywright,
     [switch]$SkipPluginConfig
@@ -22,15 +24,33 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Service = Join-Path $Root "service"
+$Bundled = Join-Path $Root "service"
+if ($ServiceDir.Trim()) {
+    $Service = [IO.Path]::GetFullPath($ServiceDir)
+} else {
+    $Service = $Bundled
+}
 $Venv = Join-Path $Service ".venv"
 $Py = Join-Path $Venv "Scripts\python.exe"
 
 function Step($text) { Write-Host "`n==> $text" -ForegroundColor Cyan }
 function Fail($text) { Write-Host $text -ForegroundColor Red; exit 1 }
 
-if (-not (Test-Path (Join-Path $Service "rover\main.py"))) {
-    Fail "找不到 $Service\rover\main.py —— 请把 install.ps1 放在插件仓库根目录运行。"
+if (-not (Test-Path (Join-Path $Bundled "rover\main.py"))) {
+    Fail "找不到 $Bundled\rover\main.py —— 请把 install.ps1 放在插件仓库根目录运行。"
+}
+
+# 装到仓库外面时，先把骨架拷过去（已有的 venv / data / plugins 不覆盖）
+if ($Service -ne (Resolve-Path $Bundled).Path) {
+    Step "准备服务目录 $Service"
+    New-Item -ItemType Directory -Force -Path $Service | Out-Null
+    foreach ($part in @("rover", "tools", "plugins")) {
+        $from = Join-Path $Bundled $part
+        $to = Join-Path $Service $part
+        if (Test-Path $from) { Copy-Item $from $to -Recurse -Force }
+    }
+    Copy-Item (Join-Path $Bundled "pyproject.toml") $Service -Force
+    Copy-Item (Join-Path $Bundled "UPSTREAM.md") $Service -Force -ErrorAction SilentlyContinue
 }
 
 # ---- 1. uv + git ------------------------------------------------------------
@@ -103,6 +123,6 @@ $summary = @"
   mediaFormat = html    （要 PNG 卡片就跑一次 -WithPlaywright 再改成 png）
 
 下一步：在 TelyinCore 的插件页启用「鸣潮查询」，调一次 waves_status 看是否在线。
-卸载：停用插件 → 删掉 $Service 整个目录即可（账号数据在 service\data 里）。
+卸载：停用插件 → 删掉 $Service 整个目录即可（账号数据在 $Service\data 里）。
 "@
 Write-Host $summary -ForegroundColor Green

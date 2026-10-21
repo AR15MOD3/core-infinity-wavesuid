@@ -5,7 +5,7 @@ TelyinCore 的鸣潮（Wuthering Waves）查询插件：把 [XutheringWavesUID](
 
 > 非官方移植。不是 Telyin 的官方内置插件，也不代表上游作者对本项目背书。
 
-- 版本：0.2.0
+- 版本：0.2.1
 - 适用：TelyinCore Infinity API 1
 - 许可：本仓库代码 GPL-3.0-or-later；`service/rover/` 来自上游，GPL-3.0（见 [NOTICE.md](NOTICE.md)）
 
@@ -36,6 +36,12 @@ Windows（在插件仓库根目录）：
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 # 想要 PNG 卡片（而不是 HTML 链接）就加 -WithPlaywright
+```
+
+从市场装进 `core/extensions/` 时，建议把服务装到 core 外面，别让 venv 和上游仓库落在 core 的目录树里：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -ServiceDir D:\TelyinCore\waves-service
 ```
 
 Linux / macOS：
