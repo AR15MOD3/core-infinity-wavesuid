@@ -89,9 +89,9 @@ Linux / macOS：
 
 1. **第一次用账号类功能要先绑定**：`ww绑定<9位UID>`；查体力/签到还要先 `ww登录`（库街区）。
    不绑定也能查的：`ww帮助`、`ww日历`、卡池倒计时、角色/武器/声骸百科等。
-2. **图片要发到 QQ，得再装一个叠加插件**：[`core-infinity-waves-qq-image`](https://github.com/AR15MOD3/core-infinity-waves-qq-image)。
-   它依赖本插件与 `core-infinity-qq`，把回执里的卡片链接变成 QQ 图片；不装的话，回执里给的是
-   `http://127.0.0.1:9777/api/media/...` 链接，浏览器能打开。
+2. **图片要发到 QQ，靠官方 QQ 插件**：`core-infinity-qq` 0.9.0 起内置 `qq_send_image`，
+   把回执里的「卡片图」链接交给它就能发。没装 QQ 插件的话，回执里给的是
+   `http://127.0.0.1:9777/api/media/...` 链接，浏览器也能打开。
 
 ## 已知限制
 

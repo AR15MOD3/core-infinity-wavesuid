@@ -46,24 +46,22 @@ TelyinCore 进程                     waves service 进程（独立 venv）
 | P0 | 服务端安装脚本（`install.ps1` / `install.sh`，vendor `rover` + 拉上游） | `/api/health` 返回 384 条命令；全新目录可装 ✅ |
 | P1 | 插件骨架：清单、配置、启停 | 停用后端口释放；连重载不双开 ✅ |
 | P2 | 命令总线 + 帮助 + 状态 | 角色/深渊/抽卡/体力/帮助 smoke ✅（账号类需绑定） |
-| P3 | 出图 → QQ（叠加插件，不改 core/QQ） | 卡片 739×2048 / 1.27 MB 进 QQ；名单外被挡 ✅（见 §5） |
+| P3 | 出图 → QQ | 卡片 739×2048 / 1.27 MB 进 QQ；名单外被挡 ✅（见 §5） |
 | P4 | 账号类（绑定 / 签到 / 抽卡导入） | token 不进日志与页面；失败区分"没登录/过期/网络" ✗ |
 
-## 5. 出图：做成了叠加插件（2026-10-22 定）
+## 5. 出图：并进了官方 QQ 插件（2026-10-22 定）
 
-约束是：**不动 core、不改 `core-infinity-qq`、能力放在插件里**。所以既不是 A1（内核加能力），
-也不是 A2（改官方 QQ 插件），而是 A4 —— 一个独立叠加插件
-[`core-infinity-waves-qq-image`](https://github.com/AR15MOD3/core-infinity-waves-qq-image)：
+最终的落点是 `core-infinity-qq` 0.9.0 内置的 `qq_send_image(scope, target, image, caption)`：
 
-- 从 waves 服务取 `/api/media/<卡片>/png`；
-- 按 core 的 `image_policy` 压到长边 2048 / 6 MiB（超过 1600 万像素的长卡片先按比例缩一次）；
-- 交给运行中的 QQ 插件实例已有的 `_send_segments`，于是允许名单、撤回、当前会话三道闸照旧生效。
+- `image` 只收**本机** http(s) 地址（127.0.0.1 / localhost / ::1）或 `data/media/outbox` 下的文件，
+  远程网址与越界路径当场拒；
+- 按魔数认图（PNG/JPEG/GIF/WebP），超过 1600 万像素先等比缩，再走 core 的 `image_policy`
+  （长边 2048、6 MiB）；
+- 发送走 QQ 插件已有的 `_send_segments`，允许名单、撤回、当前会话三道闸照旧。
 
-代价：它依赖 core 的私有注册表 `_active_items()`（今天没有公开的"跨插件发图"宿主能力）。
-只在调用那一刻解析，热加载/重载不受影响；找不到 QQ 实例时明确回"没找到"。
+本插件这边只多一行：回执里的「卡片图」默认给 PNG 链接（`mediaFormat: png`），交给 `qq_send_image` 即可。
 
-实测（`ww帮助` 卡片）：原图 2570×7118 / 5.2 MB → 缩放后 739×2048 / 1.27 MB PNG；
-允许名单外的目标被 QQ 自己挡下，名单内通过校验后才进入发送。
+实测（`ww帮助` 卡片）：原图 2570×7118 / 5.2 MB → 739×2048 / 1.27 MB PNG，`send_group_msg`。
 
 ## 6. 规范对照（§12 检查单）
 
