@@ -1,6 +1,8 @@
 """服务生命周期。启动顺序: 建库 → 载插件 → 建表迁移 → 启动钩子与调度器。"""
 
 import asyncio
+import sys
+from rover.work_owner import owner as work_owner
 import importlib
 import pkgutil
 from contextlib import asynccontextmanager
@@ -112,20 +114,35 @@ async def lifespan(app: FastAPI):
     from rover.utils.database.base_models import init_database
     from rover.utils.database.startup import init_all
 
-    await init_database()
-    load_plugins()
-    await init_all()
-    await core_start_before_execute()
-    asyncio.create_task(core_start_execute())
-    register_cleanup_job()
-    await start_scheduler()
-    logger.success("[服务] 启动完成")
     try:
+        await init_database()
+        load_plugins()
+        from rover.login_receipts import install as install_login_receipts
+        install_login_receipts()
+        from rover.login_outcomes import install as install_login_outcomes
+        install_login_outcomes()
+        await init_all()
+        await core_start_before_execute()
+        work_owner.spawn(core_start_execute,name='waves-startup-hooks')
+        register_cleanup_job()
+        await start_scheduler()
+        logger.success("[服务] 启动完成")
+
         yield
     finally:
-        await stop_scheduler()
-        await core_shutdown_execute()
-        logger.info("[服务] 已停止")
+        from rover.command_jobs import jobs
+        from rover.pool import close_pool
+        work_owner.seal()
+        primary=sys.exception();errors=[]
+        for cleanup in (jobs.close,stop_scheduler,core_shutdown_execute,close_pool,work_owner.close):
+            try:await cleanup()
+            except BaseException as error:errors.append(error)
+        if errors:
+            if primary is not None:
+                primary.add_note('Waves cleanup incomplete; original error retained')
+                primary.waves_cleanup_errors=tuple(errors)
+            else:raise errors[0]
+        else:logger.info("[服务] 已停止")
 
 
 app = FastAPI(title="鸣潮服务", lifespan=lifespan)

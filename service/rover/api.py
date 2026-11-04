@@ -17,7 +17,7 @@ from rover.api_render import render_segments, summarize
 from rover.app_life import app
 from rover.config import CONFIG_DEFAULT, core_config
 from rover.handler import build_message, dispatch, normalize_command
-from rover.logger import logger
+from rover.logger import logger, command_log_scope
 from rover.media import cleanup_media, media_path, render_png
 
 DEFAULT_GROUP = "dsh"
@@ -53,6 +53,9 @@ class ChatRequest(BaseModel):
     images: Optional[List[str]] = None
     file_name: Optional[str] = None
     file_data: Optional[str] = None
+    bridge_receipts: bool = False
+    request_id: Optional[str] = None
+    audience: Optional[str] = None
 
 
 @app.get("/api/health")
@@ -66,15 +69,31 @@ async def health() -> Dict[str, Any]:
         "plugins": list(SL.plugins.keys()),
         "commands": sum(len(t) for sv in SL.lst.values() for t in sv.TL.values()),
         "prefixes": all_prefixes(),
+        "command_receipts": 1,
+        "login_notifications": 1,
+        **__import__("scope_identity").identity(),
     }
 
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest) -> Dict[str, Any]:
+    # Context propagates to receipt jobs; never log command text or exceptions.
+    token = command_log_scope.set(True)
+    try:
+        return await _chat(req)
+    finally:
+        command_log_scope.reset(token)
+
+
+async def _chat(req: ChatRequest) -> Dict[str, Any]:
     command = normalize_command(req.command.strip())
     if not command:
         raise HTTPException(status_code=400, detail="命令为空")
 
+    from rover.sv import _login_kind, all_prefixes
+    login, credentials = _login_kind(command, all_prefixes())
+    if req.scene != "direct" and credentials:
+        return {"ok": False, "summary": "群聊可以发起网页登录；凭证请在网页登录页填写。本次未执行带凭证的登录命令。", "segments": []}
     user_id = req.user_id or _default_user()
     user_type = "direct" if req.scene == "direct" else "group"
     message = build_message(
@@ -86,8 +105,24 @@ async def chat(req: ChatRequest) -> Dict[str, Any]:
         file_name=req.file_name,
         file_data=req.file_data,
     )
-    logger.info(f"[命令] {command} (scene={user_type})")
-    result = await dispatch(message)
+    logger.info(f"[命令] 已接收 (scene={user_type})")
+    if req.bridge_receipts:
+        from rover.command_jobs import jobs
+        if (not req.user_id or not req.request_id or not req.audience
+                or len(req.request_id) > 128 or len(req.audience) > 128):
+            return jobs.error("桥接调用缺少用户、会话或消息身份；没有执行命令。")
+        owner = (req.user_id, req.scene, req.audience)
+        return await jobs.submit(owner, req.request_id,
+                                 lambda sink: dispatch(message, receipt_sink=sink),
+                                 render_segments)
+    if command == "ww帮助":
+        import asyncio
+        try:
+            result = await asyncio.wait_for(dispatch(message), 8)
+        except asyncio.TimeoutError:
+            return {"ok": False, "summary": "帮助查询超时；没有执行账号操作。", "segments": []}
+    else:
+        result = await dispatch(message)
     rendered = await render_segments(result["segments"])
 
     if result["unmatched"]:
@@ -106,6 +141,21 @@ async def chat(req: ChatRequest) -> Dict[str, Any]:
         "segments": rendered,
         "elapsed": round(result["elapsed"], 3),
     }
+
+
+class CommandReceiptRequest(BaseModel):
+    job_id: str
+    user_id: str
+    scene: str
+    audience: str
+    cursor: int = 0
+
+
+@app.post("/api/command-receipt")
+async def command_receipt(req: CommandReceiptRequest) -> Dict[str, Any]:
+    from rover.command_jobs import jobs
+    return await jobs.read(req.job_id, (req.user_id, req.scene, req.audience),
+                           req.cursor, render_segments)
 
 
 class PanelRenderRequest(BaseModel):
@@ -323,23 +373,49 @@ async def commands() -> Dict[str, Any]:
     return {"total": len(out), "commands": out, "ai": AI_COMMANDS}
 
 
+_STATUS_BUDGET = 3.0
+
 @app.get("/api/status")
 async def status() -> Dict[str, Any]:
+    import asyncio
+    import inspect
     from rover.status.plugin_status import plugins_status
+    from rover.work_owner import owner
 
     data: Dict[str, Any] = {}
-    for plugin_name, items in plugins_status.items():
+    deadline = asyncio.get_running_loop().time() + _STATUS_BUDGET
+    exhausted = False
+    for plugin_name, items in tuple(plugins_status.items()):
         # register_status 存的是 {icon: PIL.Image, status: {标签: 协程}}
         # icon 不能进 JSON, 只跑指标函数
         metrics: Dict[str, Any] = {}
         raw = (items or {}).get("status") or {}
         if not isinstance(raw, dict):
             raw = {}
-        for label, func in raw.items():
+        for label, func in tuple(raw.items()):
+            task = None
             try:
-                value = await func() if callable(func) else func
+                remaining = deadline - asyncio.get_running_loop().time()
+                if exhausted or remaining <= 0:
+                    value = '未执行: 状态查询总预算耗尽'
+                elif not callable(func):
+                    value = func
+                elif not (inspect.iscoroutinefunction(func) or inspect.iscoroutinefunction(getattr(func, '__call__', None))):
+                    value = '错误: 状态指标必须为异步函数'
+                else:
+                    task = owner.spawn(func, name='waves-status-metric')
+                    done, _ = await asyncio.wait({task}, timeout=remaining)
+                    if not done:
+                        exhausted = True
+                        task.cancel()
+                        value = '超时: 未完成任务仍由服务持有'
+                    else:
+                        value = task.result()
+            except asyncio.CancelledError:
+                if task is not None and not task.done(): task.cancel()
+                raise
             except Exception as e:
-                value = f"错误: {e}"
+                value = f"错误: {type(e).__name__}"
             metrics[str(label)] = value
         data[plugin_name] = metrics
     return {"status": data}

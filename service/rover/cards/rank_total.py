@@ -306,8 +306,8 @@ async def _build_all_rank(module, bot, ev, char, rank_type, pages, modal, group_
                 "attribute": attribute_icon,
                 "uid": f"特征码: {uid_text}",
                 "uid_color": _css(module.RED) if is_self_ck and self_uid == rank.waves_id else "white",
-                # 点行按对方 uid 查这个角色的面板(对方未公开则由命令自己回提示)
-                "cmd": f"{_shared.prefix()}{rank.waves_id}{char_name}面板" if rank.waves_id else "",
+                # A masked identifier must not survive in an invisible command.
+                "cmd": f"{_shared.prefix()}{rank.waves_id}{char_name}面板" if rank.waves_id and str(uid_text) == str(rank.waves_id) else "",
                 "name": str(rank.kuro_name),
                 "badge": _bot_badge(module, assets, getattr(rank, "background", ""), rank.alias_name),
                 "score": score,

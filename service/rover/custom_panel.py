@@ -1,6 +1,7 @@
 """AI 自定义面板: 按传入 ctx 重组角色声骸后渲完整面板。
 
-只渲染: 不写 players/、不进上传队列(总排行)、不改任何用户数据。
+使用本地面板副本及无账号渲染路径；不刷新账号、不查排行或写本人面板状态。
+图像资源缓存不属于用户面板；依赖已核对的上游 is_limit_query/override 合同。
 """
 
 import copy
@@ -21,7 +22,7 @@ def _props(pairs: Any) -> List[Dict[str, Any]]:
     for item in pairs or []:
         if isinstance(item, dict):
             name = item.get("attributeName") or item.get("name")
-            value = item.get("attributeValue") or item.get("value")
+            value = item.get("attributeValue") if item.get("attributeValue") is not None else item.get("value")
         elif isinstance(item, (list, tuple)) and len(item) >= 2:
             name, value = item[0], item[1]
         else:
@@ -69,8 +70,8 @@ def _build_custom_echo(spec: Dict[str, Any]) -> Dict[str, Any]:
         },
         "cost": cost,
         "quality": quality,
-        "level": int(spec.get("level") or 25),
-        "fetterDetail": {"groupId": 0, "name": sonata, "num": int(spec.get("num") or 5)},
+        "level": int(spec.get("level", 25)),
+        "fetterDetail": {"groupId": 0, "name": sonata, "num": int(spec.get("num", 5))},
         "mainProps": main,
         "subProps": subs,
     }
@@ -119,7 +120,7 @@ async def _apply_echoes(uid: str, role_detail, echoes: List[Dict[str, Any]]) -> 
     for i, spec in enumerate(echoes):
         if not isinstance(spec, dict):
             raise ValueError(f"声骸项要是对象: {spec!r}")
-        slot = int(spec.get("slot") or i + 1)
+        slot = int(spec.get("slot", i + 1))
         if slot < 1 or slot > 5:
             raise ValueError(f"slot 只能是 1-5: {slot}")
         if spec.get("from"):
@@ -188,6 +189,13 @@ async def render_custom_panel(
             return str(e), []
 
     change = str(payload.get("change") or "").strip() or None
+    if change:
+        # The upstream free-form phantom command may refresh another account's
+        # credentials or fetch a remote panel, even in limited rendering mode.
+        # Structured echoes above use the local read-only source instead.
+        from plugins.XutheringWavesUID.XutheringWavesUID.wutheringwaves_charinfo.role_info_change import ChangeParser
+        if ChangeParser(change).rr.phantom.phantomList:
+            return "只读预览不执行自由文本中的跨角色声骸查询；请通过 echoes 指定本地声骸。", []
 
     bot = Bot(ev)
     try:
@@ -198,19 +206,8 @@ async def render_custom_panel(
             ev.user_id,
             change_list_regex=change,
             role_detail_override=role_detail,
+            is_limit_query=True,
         )
-        # 账号上下文取不到时降级为无账号渲染
-        if isinstance(im, str) and not change:
-            im2 = await draw_char_detail_img(
-                ev,
-                uid,
-                char_name,
-                ev.user_id,
-                is_limit_query=True,
-                role_detail_override=role_detail,
-            )
-            if not isinstance(im2, str):
-                im = im2
     except Exception as e:
         logger.exception(f"[自定义面板] 渲染失败 {char_name}: {e}")
         return f"渲染失败: {e}", []

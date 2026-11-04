@@ -22,19 +22,19 @@
     "autoStart": {
       "type": "boolean",
       "title": "随插件启动服务",
-      "description": "由本插件拉起 waves service 子进程；插件停用或重载时会结束它。关闭则视为服务由你手工启动。",
+      "description": "隔离模式必须为 true；只管理本插件创建的服务，禁止接管外部进程。",
       "default": false
     },
     "python": {
       "type": "string",
       "title": "服务用 Python 解释器",
-      "description": "waves-service 虚拟环境里的 python.exe 绝对路径；留空则用 TelyinCore 自己的解释器（通常没有服务依赖，不推荐）。",
+      "description": "必填：服务环境 python.exe 的绝对路径，不回退到 Core 解释器。",
       "default": ""
     },
     "serviceDir": {
       "type": "string",
       "title": "服务目录",
-      "description": "包含 rover/main.py 的目录；留空则用插件目录下的 service/。",
+      "description": "必填：含 scoped_main.py 的独立版本化服务目录；不回退到插件目录。",
       "default": ""
     },
     "mediaFormat": {
@@ -64,6 +64,18 @@
       "minimum": 5,
       "maximum": 600,
       "default": 90
+    },
+    "ownerBot": {
+      "type": "string",
+      "title": "服务所属 Bot",
+      "description": "必须与宿主 bot_id 完全一致；不能使用显示名猜测身份。",
+      "default": ""
+    },
+    "dataDir": {
+      "type": "string",
+      "title": "独立数据目录",
+      "description": "绝对路径；每个 Bot 独立，位于插件包与服务代码目录之外，不可复制其他 Bot 数据。",
+      "default": ""
     }
   }
 }

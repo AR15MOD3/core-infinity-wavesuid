@@ -5,6 +5,7 @@
 """
 
 import base64
+import os
 from pathlib import Path
 from typing import Dict, Optional, Set, Tuple
 
@@ -21,17 +22,20 @@ MAGICS = (
     (b"\x00\x00\x01\x00", "image/x-icon"),
 )
 
-# 本地文件的 data:URI 缓存: 路径 → (修改时间, 大小, data:URI)
+# Compatibility container only; reads use current bounded bytes, never stale metadata hits.
 _file_cache: Dict[str, Tuple[float, int, str]] = {}
 # 同一个坏配置只提示一次
 _warned: Set[str] = set()
+MAX_AVATAR_BYTES = 8 * 1024 * 1024
 
 
 def _warn(raw: str, reason: str) -> None:
     if raw in _warned:
         return
+    if len(_warned) >= 128:
+        _warned.clear()
     _warned.add(raw)
-    logger.warning(f"[头像] 配置无效, 回退默认头像: {raw} ({reason})")
+    logger.warning("[头像] 配置无效, 回退默认头像")
 
 
 def _mime(data: bytes) -> Optional[str]:
@@ -52,21 +56,30 @@ def _data_uri(raw: str) -> str:
     except OSError as e:
         _warn(raw, f"读不到文件: {e}")
         return ""
-    key = str(path)
-    cached = _file_cache.get(key)
-    if cached and cached[0] == stat.st_mtime and cached[1] == stat.st_size:
-        return cached[2]
+    if stat.st_size > MAX_AVATAR_BYTES:
+        _warn(raw, '图片超过本地读取上限')
+        return ''
     try:
-        data = path.read_bytes()
+        with path.open('rb') as stream:
+            before = os.fstat(stream.fileno())
+            data = stream.read(MAX_AVATAR_BYTES + 1)
+            after = os.fstat(stream.fileno())
+        current = path.stat()
     except OSError as e:
         _warn(raw, f"读文件失败: {e}")
         return ""
+    stamp = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+    if (len(data) > MAX_AVATAR_BYTES or len(data) != after.st_size
+            or stamp(before) != stamp(after) or stamp(after) != stamp(current)):
+        _warn(raw, '读取期间文件发生变化')
+        return ''
     mime = _mime(data)
     if mime is None:
         _warn(raw, "不是图片文件")
         return ""
     uri = f"data:{mime};base64,{base64.b64encode(data).decode()}"
-    _file_cache[key] = (stat.st_mtime, stat.st_size, uri)
+    # Read bounded current bytes each time. Same-size/mtime replacements must
+    # not reuse another image; avoid retaining unbounded data-URI cache entries.
     _warned.discard(raw)
     return uri
 

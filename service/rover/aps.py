@@ -1,5 +1,7 @@
 """定时任务调度器。插件通过 `@scheduler.scheduled_job` / `scheduler.add_job` 注册。"""
 
+import asyncio
+from rover.work_owner import owner as work_owner
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -26,6 +28,13 @@ options = {
 
 
 class _Scheduler(AsyncIOScheduler):
+    def add_job(self,func,*args,**kwargs):
+        if isinstance(func,str):
+            from apscheduler.util import ref_to_obj
+            func=ref_to_obj(func)
+        if not callable(func):raise TypeError('scheduled callable required')
+        return super().add_job(work_owner.wrap_job(func),*args,**kwargs)
+
     def scheduled_job(self, *args, **kwargs):
         kwargs.pop("replace_existing", None)
         return super().scheduled_job(*args, **kwargs)
@@ -43,5 +52,13 @@ async def start_scheduler() -> None:
 
 async def stop_scheduler() -> None:
     if scheduler.running:
+        pool=getattr(executor,'_pool',None)
+        workers=getattr(pool,'_threads',None)
         scheduler.shutdown(wait=False)
+        if type(workers) is not set:raise RuntimeError('scheduled worker identities unavailable')
+        workers=tuple(workers)
+        deadline=asyncio.get_running_loop().time()+5
+        while any(t.is_alive() for t in workers) and asyncio.get_running_loop().time()<deadline:
+            await asyncio.sleep(.01)
+        if any(t.is_alive() for t in workers):raise RuntimeError('scheduled workers still alive')
         logger.info("[调度器] 已关闭定时任务")

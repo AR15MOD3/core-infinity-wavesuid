@@ -9,6 +9,12 @@
 """
 
 import asyncio
+import inspect
+import sys
+from rover.work_owner import WorkOwner
+
+# Cleanup hooks have their own owner: normal ingress is already sealed at shutdown.
+hook_owner = WorkOwner()
 from dataclasses import dataclass, field
 from itertools import groupby
 from typing import Any, Callable, List, Optional, Set, TypeVar, overload
@@ -94,29 +100,25 @@ def on_core_shutdown(func: Optional[Callable] = None, /, priority: int = 0):
     return decorator
 
 
-async def _execute(hooks: Set[_DefHook], tag: str) -> None:
-    try:
-        sorted_defs: List[_DefHook] = sorted(hooks)
-    except Exception as e:
-        logger.exception(f"[{tag}] 钩子排序失败: {e}")
-        return
+async def _invoke_hook(function):
+    result = (function() if inspect.iscoroutinefunction(function)
+              else await asyncio.to_thread(function))
+    if inspect.isawaitable(result):
+        await result
 
-    logger.info(f"[{tag}] 执行钩子: {[hook.func.__name__ for hook in sorted_defs]}")
-    for _, group in groupby(sorted_defs, key=lambda h: h.priority):
-        group_hooks = list(group)
-        results = await asyncio.gather(
-            *[
-                (hook.func() if asyncio.iscoroutinefunction(hook.func) else asyncio.to_thread(hook.func))
-                for hook in group_hooks
-            ],
-            return_exceptions=True,
-        )
-        for hook, result in zip(group_hooks, results):
-            if isinstance(result, BaseException):
-                logger.error(
-                    f"[{tag}] 钩子 {hook.func.__name__} 执行失败: {result}",
-                    exc_info=result,
-                )
+
+async def _execute(hooks: Set[_DefHook], tag: str) -> None:
+    for _, group in groupby(sorted(hooks), key=lambda h: h.priority):
+        tasks = []
+        for hook in group:
+            # The owner retains the real task even if gather's observer is cancelled.
+            tasks.append(hook_owner.spawn(lambda f=hook.func: _invoke_hook(f), name='waves-hook'))
+        results = await asyncio.gather(*(asyncio.shield(task) for task in tasks),
+                                       return_exceptions=True)
+        errors = [result for result in results if isinstance(result, BaseException)]
+        if errors:
+            errors[0].hook_errors = tuple(errors)
+            raise errors[0]
 
 
 async def core_start_before_execute() -> None:
@@ -128,4 +130,13 @@ async def core_start_execute() -> None:
 
 
 async def core_shutdown_execute() -> None:
-    await _execute(core_shutdown_def, "关闭钩子")
+    try:
+        await _execute(core_shutdown_def, "关闭钩子")
+    finally:
+        primary = sys.exception()
+        try:
+            await hook_owner.close()
+        except BaseException as error:
+            if primary is None:
+                raise
+            primary.hook_cleanup_error = error

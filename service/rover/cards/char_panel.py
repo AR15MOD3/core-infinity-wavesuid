@@ -155,9 +155,8 @@ async def _background(m) -> str:
         custom = Path(m.ShowConfig.get_config("CardBgPath").data)
         if custom.is_file():
             path = custom
-    key = f"bg:{path or 'bg3'}"
-    if key in _URI_CACHE:
-        return _URI_CACHE[key]
+    # Background bytes and blur settings are mutable; never reuse a path-only entry.
+    key = ""
     img = Image.open(path).convert("RGBA") if path else m.get_waves_bg(bg="bg3", crop=False)
     scale = 1200 / img.width
     img = img.resize((1200, max(1, int(img.height * scale))), Image.LANCZOS)

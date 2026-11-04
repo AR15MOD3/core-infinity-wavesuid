@@ -66,8 +66,22 @@ def _load() -> Dict[str, Any]:
                 rec = json.loads(line)
             except ValueError:
                 continue
-            if not rec.get("id") or not rec.get("content"):
-                continue
+            if not isinstance(rec, dict):
+                raise ValueError('knowledge record must be an object')
+            if (not isinstance(rec.get('id'), str) or not rec['id'].strip()
+                    or not isinstance(rec.get('content'), str) or not rec['content']):
+                raise ValueError('knowledge id/content must be nonempty strings')
+            if rec['id'] in sections:
+                raise ValueError('duplicate knowledge section id')
+            for field in ('entry', 'title', 'tier'):
+                if field in rec and not isinstance(rec[field], str):
+                    raise ValueError('knowledge string field invalid: '+field)
+            for field in ('tags', 'triggers'):
+                values = rec.get(field, [])
+                if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
+                    raise ValueError('knowledge list field invalid: '+field)
+            if 'priority' in rec and type(rec['priority']) is not int:
+                raise ValueError('knowledge priority must be integer')
             rec["_kind"] = source_kind
             sections[rec["id"]] = rec
             entry_secs.setdefault(rec.get("entry") or rec["id"], []).append(rec["id"])
@@ -104,8 +118,13 @@ def _load() -> Dict[str, Any]:
 
 def reload() -> int:
     global _state
+    previous = _state
     _state = None
-    return len(_load()["sections"])
+    try:
+        return len(_load()["sections"])
+    except BaseException:
+        _state = previous
+        raise
 
 
 def get(kid: str) -> Optional[dict]:

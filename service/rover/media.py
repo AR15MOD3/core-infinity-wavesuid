@@ -19,7 +19,7 @@ GRACE_SECONDS = 300
 TARGET_RATIO = 0.8
 # 累计写入量达到此值才做一次目录扫描清理
 CHECK_BYTES = 32 * 1024 * 1024
-# 访问时刷新 mtime 的最小间隔
+# 访问元数据刷新的最小间隔（不改变内容mtime）
 TOUCH_INTERVAL = 60
 
 _written_bytes = 0
@@ -61,19 +61,35 @@ def save_media(data: bytes, ext: str = "jpg") -> str:
 
 
 async def render_png(name: str) -> Optional[Path]:
-    """把存好的 HTML 卡片用无头浏览器拍成 PNG, 按原始设计宽度出图, 结果缓存复用。"""
+    from rover.media_cache import render_lock
     source = media_path(name)
     if source is None or source.suffix != ".html":
         return None
+    async with render_lock(source):
+        return await _render_png(name)
+
+
+async def _render_png(name: str) -> Optional[Path]:
+    """把存好的 HTML 卡片用无头浏览器拍成 PNG, 按原始设计宽度出图, 结果缓存复用。"""
+    started = time.monotonic()
+    source = media_path(name)
+    if source is None or source.suffix != ".html":
+        return None
+    from rover.media_cache import signature, valid_png, atomic_bytes, remember_png
     target = source.with_suffix(".png")
-    if target.is_file() and target.stat().st_mtime >= source.stat().st_mtime:
+    fingerprint = signature(source)
+    if valid_png(source, target, fingerprint):
         _touch(target)
+        logger.info(f"[waves timing] png_cache_hit_ms={round((time.monotonic()-started)*1000)}")
         return target
 
     from playwright.async_api import async_playwright
 
     async with async_playwright() as driver:
+        launch_started = time.monotonic()
         browser = await driver.chromium.launch(args=["--disable-gpu"])
+        logger.info(f"[waves timing] browser_launch_ms={round((time.monotonic()-launch_started)*1000)}")
+        render_started = time.monotonic()
         try:
             page = await browser.new_page(viewport={"width": 1600, "height": 1200})
             await page.goto(source.as_uri(), wait_until="load")
@@ -91,10 +107,14 @@ async def render_png(name: str) -> Optional[Path]:
                 full_page=True, clip={"x": 0, "y": 0, "width": width, "height": height}
             )
         finally:
+            logger.info(f"[waves timing] page_render_ms={round((time.monotonic()-render_started)*1000)}")
             await browser.close()
 
-    target.write_bytes(data)
+    atomic_bytes(target, data)
+    # Source changes during rendering never bless a stale image as current.
+    remember_png(target, fingerprint if signature(source) == fingerprint else None)
     _on_written(len(data))
+    logger.info(f"[waves timing] png_total_ms={round((time.monotonic()-started)*1000)}")
     logger.info(f"[媒体] 卡片截图 {name} → {width}x{height} {len(data) // 1024}KB")
     return target
 
@@ -114,12 +134,9 @@ def media_path(name: str) -> Optional[Path]:
 
 
 def _touch(path: Path) -> None:
-    """刷新 mtime, 使淘汰顺序按最近使用时间。"""
-    try:
-        if time.time() - path.stat().st_mtime > TOUCH_INTERVAL:
-            os.utime(path, None)
-    except OSError:
-        pass
+    """只记录最近使用时间；源文件修改时间只代表内容变化。"""
+    from rover.media_cache import remember_access
+    remember_access(path, TOUCH_INTERVAL)
 
 
 def _on_written(size: int) -> None:
@@ -148,7 +165,8 @@ def _scan() -> Tuple[List[Tuple[float, int, Path]], int]:
             continue
         if not S_ISREG(st.st_mode):
             continue
-        entries.append((st.st_mtime, st.st_size, path))
+        from rover.media_cache import last_use
+        entries.append((last_use(path, st.st_mtime), st.st_size, path))
         total += st.st_size
     return entries, total
 
@@ -188,10 +206,14 @@ def cleanup_media() -> Dict[str, int]:
                 path.unlink()
             except OSError:
                 continue
+            from rover.media_cache import remove_metadata
+            remove_metadata(path)
             removed += 1
             freed += size
             total -= size
 
+    from rover.media_cache import prune_metadata
+    prune_metadata(MEDIA_DIR)
     if removed:
         logger.info(
             f"[媒体清理] 删除 {removed} 个, 释放 {freed / 1048576:.1f}MB, "

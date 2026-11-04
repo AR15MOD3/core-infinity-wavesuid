@@ -107,20 +107,28 @@ def _find_icon(name: str, icon_path: Path) -> Optional[Path]:
     return icons[zlib.crc32(name.encode("utf-8")) % len(icons)]
 
 
-def _dispatches(command: str) -> bool:
-    """按分发时的同一套规则判定, 而不是宽松前缀匹配: 点了没反应的条目不该留在帮助里。"""
+def _dispatches(command: str, pm: int = 6) -> bool:
+    """Filter registered/enabled/permission-compatible examples, not authorization.
+
+    This legacy help signature has no actual sender or scene. Both scenes are
+    considered for documentation; dispatch rechecks the real event and owner.
+    """
     from rover.models import Event
     from rover.sv import SL
+    from rover.handler import _sv_authorized
 
-    event = Event(bot_id="dsh", user_id="local", raw_text=command, user_type="group")
-    for sv in SL.lst.values():
-        for table in sv.TL.values():
-            for trigger in table.values():
-                try:
-                    if trigger.check_command(event):
-                        return True
-                except Exception:
-                    continue
+    for scene in ('group', 'direct'):
+        event = Event(bot_id="dsh", user_id="local", raw_text=command, user_type=scene, user_pm=pm)
+        for sv in SL.lst.values():
+            if not _sv_authorized(sv, event, pm):
+                continue
+            for table in sv.TL.values():
+                for trigger in table.values():
+                    try:
+                        if trigger.check_command(event):
+                            return True
+                    except Exception:
+                        continue
     return False
 
 
@@ -141,9 +149,9 @@ def _candidates(command: str, prefix: str):
     yield prefix + tail
 
 
-def _executable(command: str, prefix: str) -> Optional[str]:
+def _executable(command: str, prefix: str, pm: int = 6) -> Optional[str]:
     for candidate in _candidates(command, prefix):
-        if candidate and _dispatches(candidate):
+        if candidate and _dispatches(candidate, pm):
             return candidate
     return None
 
@@ -177,7 +185,7 @@ def _entries(cat: str, cat_data: dict, prefix: str, pm: int) -> List[dict]:
         name = str(entry.get("name", ""))
         if any(marker in f"{name}{eg}" for marker in DROP_HELP_MARKERS):
             continue
-        command = _executable(shown, "" if cat == "插件帮助一览" else prefix) if eg else shown
+        command = _executable(shown, "" if cat == "插件帮助一览" else prefix, pm) if eg else shown
         if eg and not command:
             continue
         rows.append(

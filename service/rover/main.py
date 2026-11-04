@@ -26,7 +26,11 @@ def main() -> None:
     import rover.api  # noqa: F401  注册路由
     from rover.app_life import app
 
-    uvicorn.run(app, host=args.host, port=args.port, log_level="warning", access_log=False)
+    server=uvicorn.Server(uvicorn.Config(app,host=args.host,port=args.port,
+        log_level="warning",access_log=False))
+    # Private, token-gated route installed only by scoped_main middleware.
+    app.state.request_owned_stop=lambda:setattr(server,'should_exit',True)
+    server.run()
 
 
 if __name__ == "__main__":

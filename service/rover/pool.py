@@ -1,6 +1,7 @@
 """线程池。to_thread 是装饰器：被装饰函数为协程函数时在线程内新建事件循环执行。"""
 
 import asyncio
+from rover.work_owner import owner as work_owner
 import functools
 import inspect
 from concurrent.futures import ThreadPoolExecutor
@@ -35,9 +36,18 @@ def to_thread(func: Callable[..., Any]) -> Callable[..., Awaitable[Any]]:
                     new_loop.close()
             return func(*args, **kwargs)
 
-        return await loop.run_in_executor(_executor, sync_worker)
+        return await work_owner.in_executor(_executor, sync_worker)
 
     return cast(Callable[..., Awaitable[Any]], wrapper)
 
 
 run_in_thread_pool = to_thread
+
+
+async def close_pool():
+    _executor.shutdown(wait=False,cancel_futures=False)
+    workers=tuple(_executor._threads)
+    deadline=asyncio.get_running_loop().time()+5
+    while any(t.is_alive() for t in workers) and asyncio.get_running_loop().time()<deadline:
+        await asyncio.sleep(.01)
+    if any(t.is_alive() for t in workers):raise RuntimeError('service executor workers still alive')

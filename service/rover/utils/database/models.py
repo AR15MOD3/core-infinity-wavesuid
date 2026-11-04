@@ -55,20 +55,9 @@ class Subscribe(BaseModel, table=True):
         user_type = "direct" if force_direct else self.user_type
         target_id = self.group_id if user_type == "group" else self.user_id
 
-        bot = None
-        if self.WS_BOT_ID:
-            bot = gss.active_bot.get(self.WS_BOT_ID)
-        if bot is None:
-            for _bot in gss.active_bot.values():
-                if getattr(_bot, "bot_id", None) == self.bot_id:
-                    bot = _bot
-                    break
-        if bot is None:
-            bot = next(iter(gss.active_bot.values()), None)
-
-        if bot is None:
-            logger.error(f"[订阅] 无可用连接, 该消息无法发送! task_name={self.task_name}")
-            return -1
+        bot = gss.active_bot.get(self.WS_BOT_ID) if self.WS_BOT_ID else None
+        if bot is None or getattr(bot, "bot_id", None) != self.bot_id:
+            raise RuntimeError("subscription Bot identity unavailable")
 
         await bot.target_send(
             reply,

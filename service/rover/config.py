@@ -144,12 +144,18 @@ class CoreConfig:
     def set_config(self, key: INT_CONFIG, value: int) -> bool: ...
 
     def set_config(self, key: str, value: Union[str, List, Dict, int, bool]) -> bool:
-        if key in CONFIG_DEFAULT:
-            self.config[key] = value
-            self.write_config()
-            return True
-        else:
-            return False
+        from copy import deepcopy
+        before = deepcopy(self.config)
+        try:
+            if key in CONFIG_DEFAULT:
+                self.config[key] = value
+                self.write_config()
+                return True
+            else:
+                return False
+        except BaseException:
+            self.config = before
+            raise
 
     def lazy_write_config(self):
         self.write_config()

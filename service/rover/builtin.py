@@ -60,15 +60,34 @@ def adapt_guide(missing: List[str]) -> str:
     )
 
 
-async def _run(args: List[str], cwd: Path) -> Tuple[int, str]:
+# Actual process handles survive observer cancellation or a failed wait.
+_operations = {}
+
+async def _run_owned(args, cwd):
     proc = await asyncio.create_subprocess_exec(
-        *args,
-        cwd=str(cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    out, _ = await proc.communicate()
-    return proc.returncode or 0, out.decode("utf-8", "replace").strip()
+        *args, cwd=str(cwd), stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT)
+    identity = object()
+    _operations[identity] = proc
+    try:
+        out, _ = await proc.communicate()
+        if proc.returncode is None:
+            raise RuntimeError("maintenance process has not exited")
+        return proc.returncode, out.decode("utf-8", "replace").strip()
+    except BaseException as primary:
+        try:
+            await proc.wait()
+        except BaseException as cleanup:
+            primary.process_wait_error = cleanup
+        raise
+    finally:
+        if proc.returncode is not None:
+            _operations.pop(identity, None)
+
+async def _run(args: List[str], cwd: Path) -> Tuple[int, str]:
+    from rover.work_owner import owner
+    task = owner.spawn(lambda: _run_owned(args, cwd), name='waves-maintenance-process')
+    return await asyncio.shield(task)
 
 
 async def _update_one(name: str) -> str:
@@ -127,7 +146,11 @@ async def restart(bot: Bot, ev: Event):
 
     await bot.send("正在重启服务, 约十几秒后恢复...")
     logger.info("[运维] 收到重启命令")
-    asyncio.get_running_loop().call_later(1, lambda: asyncio.ensure_future(restart_service()))
+    from rover.work_owner import owner as work_owner
+    async def delayed_restart():
+        await asyncio.sleep(1)
+        await restart_service()
+    work_owner.spawn(delayed_restart,name='waves-delayed-restart')
 
 
 @sv_state.on_fullmatch(("服务状态", "运行状态"), block=True)
