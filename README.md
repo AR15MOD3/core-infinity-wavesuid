@@ -1,4 +1,4 @@
-# core-infinity-wavesuid 0.3.1 · 独立 Bot 作用域
+# core-infinity-wavesuid 0.3.2 · 插件自带账号管理页
 
 TelyinCore Infinity API 1 的非官方鸣潮查询桥接，使用 XutheringWavesUID / dsh-plugin-waves 服务兼容层。
 不代表上游作者背书；桥接代码 GPL-3.0-or-later，原服务兼容层 GPL-3.0，合并分发按 GPL-3.0，见 NOTICE.md 与 service/UPSTREAM.md。
@@ -72,5 +72,10 @@ waves_help 返回命令资料及可用卡片地址，不直接发送消息、不
 ## 更新、兼容与测试
 
 见 [0.3.1 更新说明](docs/RELEASE-0.3.1.md) 与 [服务说明](docs/SERVICE.md)。
-共享 Core 原生账号管理页不在本插件包内；插件市场更新不会改写 Core 的页面代码。
+0.3.2 已包含 config.html 与 account_admin.py，通过 pageBackend v1 通用宿主接口提供账号管理。
+需要支持该接口的 Core；旧 Core 可能仍展示其历史原生页面，不能据此判断插件自带页面已验收。
+见 [页面接入与分发](docs/PAGE.md)。
 离线测试入口：`python -B -m unittest discover -s tests -v`（标准库，无真实登录或 QQ 外发）。
+
+页面脚本模拟测试：`node tests/test_page.mjs`（标准库，不进行网络请求）。
+包版本 0.3.2；服务/桥接协议仍为 0.3.1，两者作用不同，不需为页面更新替换服务数据库。

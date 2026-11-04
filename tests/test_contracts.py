@@ -45,8 +45,8 @@ class Receipts(unittest.TestCase):
 
     def test_versions_agree(self):
         package = json.loads((ROOT / 'package.json').read_text(encoding='utf-8-sig'))
-        self.assertEqual(package['version'], bridge.PLUGIN_VERSION)
-        self.assertEqual(package['version'], runtime.BRIDGE_VERSION)
+        self.assertEqual(bridge.PLUGIN_VERSION, runtime.BRIDGE_VERSION)
+        self.assertEqual(package['telyincore']['botScope'], 1)
 
     def test_card_url_survives_long_digest(self):
         value = bridge._receipt({'ok': True, 'segments': [

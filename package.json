@@ -1,6 +1,6 @@
 {
   "name": "core-infinity-wavesuid",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "author": "AR15MOD3",
   "license": "GPL-3.0-or-later",
   "description": "把 XutheringWavesUID 的鸣潮查询接进 TelyinCore：角色与武器查询、面板、深渊、抽卡、体力、排行。非官方移植。",
@@ -17,6 +17,19 @@
     "botScope": 1,
     "displayName": "鸣潮查询",
     "icon": "grid",
-    "configSchema": "config.schema.json"
+    "configSchema": "config.schema.json",
+    "configPage": "config.html",
+    "pageBackend": "account_admin.py",
+    "pageBackendApi": 1,
+    "pageActions": {
+      "accounts": {
+        "mutates": false,
+        "label": "读取账号名单"
+      },
+      "delete_account": {
+        "mutates": true,
+        "label": "删除本 Bot 保存的账号绑定和登录凭证"
+      }
+    }
   }
 }
