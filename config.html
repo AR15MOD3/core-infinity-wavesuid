@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>鸣潮查询 · 账号管理</title>
+<style>
+:root{color-scheme:light dark;font:14px/1.65 system-ui,sans-serif;color:light-dark(#29313b,#eee);background:light-dark(#fff,#202127)}
+*{box-sizing:border-box}body{margin:0;padding:20px}h1{font-size:21px;margin:0 0 8px}h2{font-size:16px;margin:0}p{margin:8px 0}.hint{color:light-dark(#657080,#b6beca);font-size:13px}
+.card{border:1px solid light-dark(#dce1e8,#45464e);border-radius:12px;padding:18px;margin:18px 0}.head{display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+button{font:inherit;padding:8px 14px;border:1px solid light-dark(#cbd3df,#62636a);border-radius:8px;background:transparent;color:inherit;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}
+.table{overflow:auto;margin:14px 0}table{width:100%;min-width:640px;border-collapse:collapse}th,td{text-align:left;padding:12px;border-bottom:1px solid light-dark(#e1e5ec,#494a52)}th{font-weight:500;color:light-dark(#657080,#b6beca)}
+#message{white-space:pre-wrap}#count{font-weight:500}.danger{color:light-dark(#a03b34,#ffb3ac)}@media(max-width:550px){body{padding:10px}.card{padding:12px}}
+</style></head><body>
+<h1>鸣潮查询 · 账号管理</h1>
+<p class="hint">查看当前 Bot 的鸣潮账号与本机登录凭证。启用、停用及升级请在插件总览操作。</p>
+<section class="card"><div class="head"><h2>插件状态</h2><button id="overview" type="button">前往插件总览 →</button></div><p id="status">正在确认页面接口…</p></section>
+<section class="card"><div class="head"><h2>已保存账号</h2><button id="refresh" type="button" disabled>刷新名单</button></div>
+<p id="count">账号名单尚未读取</p>
+<div class="table"><table><thead><tr><th scope="col">QQ 用户</th><th scope="col">鸣潮 UID</th><th scope="col">绑定</th><th scope="col">登录凭证</th><th scope="col">操作</th></tr></thead><tbody id="accounts"></tbody></table></div>
+<p class="hint">群成员各自绑定、登录自己的账号。此处仅展示本机保存情况，不代表 QQ 在线状态或库街区凭证实时有效；刷新名单不会联网验证凭证。</p>
+<p class="hint">删除仅移除此 Bot 保存的绑定及登录信息，不注销游戏账号。本机会保留私密回滚备份。请先到插件总览停用鸣潮插件，待服务退出后刷新名单。</p>
+</section><p id="message" role="status" aria-live="polite"></p>
+<script>
+'use strict';
+const $=id=>document.getElementById(id),pending=new Map();
+let config=null,current=null,busy=false,sequence=0,readGeneration=0;
+function send(value){parent.postMessage(value,'*');}
+function message(value){$('message').textContent=value;}
+function buttons(){
+ $('refresh').disabled=busy||!config?.pageActions?.accounts;
+ for(const button of $('accounts').querySelectorAll('button'))button.disabled=busy||current?.deleteAllowed!==true;
+}
+function label(account){
+ if(!account.loginSaved)return account.bound?'仅绑定 UID，未保存登录凭证':'未保存登录凭证';
+ if(account.loginState==='登录信息已标记失效')return '登录凭证已标记失效';
+ if(account.loginState==='已保存抽卡登录（未在线验证）')return '已保存抽卡登录凭证';
+ if(account.loginState==='已保存登录（未在线验证）')return '已保存库街区登录凭证';
+ return '已保存登录凭证（详细状态待核对）';
+}
+function cell(row,value){const td=document.createElement('td');td.textContent=String(value);row.append(td);return td;}
+function request(action,payload){
+ if(!config?.pageActions?.[action])return Promise.reject(Error('当前 Core 尚不支持此页面接口，请更新宿主；未执行操作。'));
+ const id=String(++sequence);
+ return new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>{pending.delete(id);reject(Error('操作回执超时，结果未确认；请刷新核对，不要重复提交删除。'));},15000);
+  pending.set(id,{resolve,reject,timer});
+  send({type:'telyincore:page:request',id,action,payload,revision:config.revision});
+ });
+}
+async function load(){
+ if(busy)return;busy=true;current=null;const mine=++readGeneration;buttons();message('正在读取本机名单…');
+ try{
+  const value=await request('accounts',{});
+  if(mine!==readGeneration)return;
+  if(!value||typeof value.bot!=='string'||!Array.isArray(value.accounts))throw Error('账号名单回执无效');
+  current=value;$('accounts').replaceChildren();
+  const plugin=value.plugin||{};
+  $('status').textContent=plugin.loaded?'插件运行中':plugin.enabled?'已启用，尚未加载':'插件已停用';
+  $('count').textContent=`已保存 ${value.people} 人 · ${value.accountCount} 个账号 · ${value.boundPeople} 人已绑定 · ${value.loginPeople} 人已保存登录凭证`;
+  for(const account of value.accounts){
+   const row=document.createElement('tr');cell(row,account.userId);cell(row,account.uid);cell(row,account.bound?'已绑定':'未绑定');cell(row,label(account));
+   const action=cell(row,'');const button=document.createElement('button');button.type='button';button.textContent='删除';
+   button.setAttribute('aria-label',`删除 ${account.userId} 的鸣潮账号 ${account.uid}`);
+   button.addEventListener('click',()=>erase(account));action.append(button);$('accounts').append(row);
+  }
+  message(value.accounts.length?'':'暂未保存鸣潮账号');
+ }catch(error){current=null;$('accounts').replaceChildren();$('count').textContent='账号名单暂不可用';message(error.message||'读取失败');}
+ finally{busy=false;buttons();}
+}
+async function erase(account){
+ if(busy||current?.deleteAllowed!==true)return;
+ busy=true;buttons();message('等待宿主确认删除…');
+ let succeeded=false;
+ try{
+  const value=await request('delete_account',{active:current.bot,id:account.id,revision:account.revision,confirm:true});
+  if(value?.ok!==true)throw Error('删除结果未确认，请刷新核对');
+  succeeded=true;message(value.message||'已删除本机记录');
+ }catch(error){message(error.message||'结果未确认，不要重复删除');}
+ finally{busy=false;buttons();}
+ if(succeeded)await load();
+}
+window.addEventListener('message',event=>{
+ if(event.source!==parent||!event.data||typeof event.data!=='object')return;
+ const data=event.data;
+ if(data.type==='telyincore:config:state'){
+  config=data.config;buttons();
+  if(config?.pageActions?.accounts){if(data.active===true)void load();}
+  else{$('status').textContent='宿主页面接口尚未接入';message('请更新支持 pageBackend v1 的共享 Core；没有执行账号操作。');}
+ }
+ if(data.type==='telyincore:page:result'){
+  const row=pending.get(data.id);if(!row)return;pending.delete(data.id);clearTimeout(row.timer);
+  if(data.ok)row.resolve(data.result);else row.reject(Error(data.message||'宿主拒绝操作；结果未确认'));
+ }
+});
+$('refresh').addEventListener('click',()=>void load());
+$('overview').addEventListener('click',()=>send({type:'telyincore:page:overview'}));
+send({type:'telyincore:config:get'});
+</script></body></html>

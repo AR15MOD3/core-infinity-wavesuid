@@ -2,7 +2,7 @@
 
 ## 本项目（桥接层）
 
-`index.py` / `install.ps1` / `install.sh` / `config.*` / `README.md` / `docs/` 为原创代码，
+`config.html` / `account_admin.py` / `tests/` / `index.py` / `install.ps1` / `install.sh` / `config.*` / `README.md` / `docs/` 为原创代码，
 作者 AR15MOD3，以 **GPL-3.0-or-later** 发布。
 
 它通过本机 HTTP（默认 `127.0.0.1:9777`）调用一个独立进程，不 import 上游业务代码。
@@ -44,3 +44,8 @@
 
 - 本项目是非官方移植，不代表 Telyin、tyql688 或 Loping151 背书。
 - 随仓库分发的第三方代码保留其原始许可与版权声明。
+
+## 0.3.2 页面与账号管理
+
+config.html 与 account_admin.py 是本任务创建并经用户于 2026-11-04 明确授权按插件 GPL 公开的代码。
+不包含 Core 的通用页面宿主、私密文件 DACL 实现或生命周期管理器；这些能力通过宿主合同调用。
