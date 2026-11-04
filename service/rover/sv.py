@@ -33,6 +33,21 @@ class SVList:
 SL = SVList()
 
 
+
+def _login_kind(text, prefixes):
+    """Return (login, attached credentials) using the dispatch prefix set."""
+    word = text.strip()
+    for prefix in sorted(set(prefixes), key=len, reverse=True):
+        if prefix and word.startswith(prefix):
+            word = word[len(prefix):].strip()
+            break
+    word = word.lower()
+    words = ("登录", "登陆", "登入", "登龙", "login", "dl", "邮箱登录", "国际服登录",
+             "抽卡登录", "抽卡登陆", "抽卡登入", "云鸣潮登录", "云鸣潮登陆", "云登陆", "云登录", "云登入")
+    login = any(word.startswith(w) for w in words)
+    return login, login and word not in words
+
+
 def _configured_prefix() -> Optional[List[str]]:
     """命令前缀由本地配置统一决定; 逗号分隔多个, 空表示不需要前缀。"""
     import re
@@ -74,8 +89,13 @@ def modify_func(func):
         try:
             return await func(bot, event)
         except Exception as e:
-            logger.error(f"执行命令 {event.command} 时出现错误")
-            logger.exception(e)
+            # Do not serialize command/exception secrets or let a logging failure
+            # replace the command's primary exception.
+            try:
+                logger.error('命令执行失败；异常向调用方传播')
+            except Exception:
+                e.add_note('command failure logging failed')
+            raise
 
     return wrapper
 

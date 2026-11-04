@@ -1,6 +1,8 @@
 import json
 import asyncio
 import sqlite3
+from contextvars import ContextVar
+from contextlib import asynccontextmanager, AsyncExitStack
 from typing import (
     Any,
     Dict,
@@ -67,11 +69,10 @@ def _load_db_config() -> Dict[str, Any]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
-        logger.warning(f"[数据库] 配置读取失败, 使用默认配置: {e}")
-        return conf
+        raise ValueError('database configuration unreadable; default fallback refused') from e
 
     if not isinstance(raw, dict):
-        return conf
+        raise ValueError('database configuration must be an object')
 
     for key in DB_CONFIG_DEFAULT:
         if key not in raw:
@@ -226,7 +227,7 @@ async def init_database():
 
             _db_initialized = True
         except Exception as e:  # noqa: E722
-            logger.exception(f"[数据库] 连接失败: {e}")
+            logger.error(f"[数据库] 连接失败: {type(e).__name__}")
             raise ValueError(f"[数据库] [{base_url}] 连接失败, 请检查配置文件!")
 
 
@@ -249,43 +250,58 @@ def _is_transient_db_error(err: BaseException) -> bool:
     return "database is locked" in msg or "database table is locked" in msg or "busy" in msg or "disk i/o error" in msg
 
 
+_session_binding = ContextVar('rover_database_session', default=None)
+
+@asynccontextmanager
+async def _database_session():
+    binding = _session_binding.get()
+    owner = asyncio.current_task()
+    if binding is not None and binding[0] is owner:
+        yield binding[1], False
+        return
+    async with AsyncExitStack() as stack:
+        if sqlite_semaphore:
+            await stack.enter_async_context(sqlite_semaphore)
+        session = await stack.enter_async_context(async_maker())
+        token = _session_binding.set((owner, session))
+        try:
+            yield session, True
+        finally:
+            _session_binding.reset(token)
+
 def with_session(
     func: Callable[Concatenate[Any, AsyncSession, P], Awaitable[R]],
 ) -> Callable[Concatenate[Any, P], Awaitable[R]]:
     @wraps(func)
     async def wrapper(self, *args: P.args, **kwargs: P.kwargs):
+        binding = _session_binding.get()
+        if binding is not None and binding[0] is asyncio.current_task():
+            return await func(self, binding[1], *args, **kwargs)
         max_retries = 3
         last_err: BaseException | None = None
         for attempt in range(max_retries):
             try:
-                if sqlite_semaphore:
-                    async with sqlite_semaphore:
-                        async with async_maker() as session:
-                            data = await func(self, session, *args, **kwargs)
-                            await session.commit()
-                            return data
-                else:
-                    async with async_maker() as session:
-                        data = await func(self, session, *args, **kwargs)
+                async with _database_session() as (session, owns):
+                    data = await func(self, session, *args, **kwargs)
+                    if owns:
                         await session.commit()
-                        return data
+                    return data
             except Exception as e:
                 last_err = e
                 if _is_pool_timeout(e):
-                    logger.error(f"[数据库] 连接池耗尽/超时, 停止重试: {e}")
+                    logger.error(f"[数据库] 连接池耗尽/超时, 停止重试: {type(e).__name__}")
                     raise
                 if isinstance(e, OperationalError) and "unable to open database file" in str(e):
                     logger.error("[数据库] 数据库无法打开, 停止重试")
                     raise
                 if _is_transient_db_error(e) and attempt < max_retries - 1:
-                    logger.warning(f"[数据库] 第 {attempt + 1} 次重试失败: {e}")
+                    logger.warning(f"[数据库] 第 {attempt + 1} 次重试失败: {type(e).__name__}")
                     await asyncio.sleep(0.5 * (2**attempt))
                     continue
                 # 业务异常 / 不可恢复：直接抛，禁止静默 return None
                 if attempt >= max_retries - 1 and _is_transient_db_error(e):
                     logger.error(
-                        f"[数据库] 重试耗尽仍失败: {e}",
-                        exc_info=True,
+                        f"[数据库] 重试耗尽仍失败: {type(e).__name__}",
                     )
                 raise
 
@@ -402,8 +418,8 @@ class BaseIDModel(SQLModel):
         if update_data:
             query = sql.values(**update_data)
             query.execution_options(synchronize_session="fetch")
-            await session.execute(query)
-            return 0
+            result = await session.execute(query)
+            return 0 if result.rowcount > 0 else -1
         return -1
 
     @classmethod
@@ -479,7 +495,7 @@ class BaseIDModel(SQLModel):
             🔸`int`: 如为1则删除成功，否则删除失败(数据不存在)
         """
         row_data = await cls.select_rows(**data)
-        logger.trace(f"[数据库] 即将删除{row_data}")
+        logger.trace("[数据库] 即将删除记录")
         if row_data:
             for row in row_data:
                 await session.delete(row)
@@ -519,7 +535,7 @@ class BaseIDModel(SQLModel):
             stmt = stmt.distinct()
         result = await session.execute(stmt)
         data = result.scalars().all()
-        logger.trace(f"[数据库] 选择 {data}")
+        logger.trace("[数据库] 选择记录")
         return data
 
     @classmethod
@@ -679,7 +695,10 @@ class BaseBotIDModel(BaseIDModel):
             🔸`int`: 成功为`0`, 失败为`-1`
         """
         uid_name = cls.get_gameid_name(game_name)
-        if not await cls.data_exist(**{uid_name: uid}):
+        identity = {uid_name: uid}
+        if bot_id is not None:
+            identity['bot_id'] = bot_id
+        if not await cls.data_exist(**identity):
             data[uid_name] = uid
             return await cls.full_insert_data(bot_id=bot_id, **data)
 
@@ -816,7 +835,7 @@ class BaseModel(BaseBotIDModel):
         elif "uid" in data:
             cond["uid"] = data["uid"]
         if await cls.data_exist(**cond):
-            await cls.update_data(user_id, bot_id, **data)
+            await cls.update_data_by_data(select_data=cond, update_data=data)
         else:
             session.add(cls(user_id=user_id, bot_id=bot_id, **data))
         return 0
@@ -850,7 +869,10 @@ class BaseModel(BaseBotIDModel):
 
             🔸`int`: 恒为0
         """
-        await session.delete(cls(user_id=user_id, bot_id=bot_id, **data))
+        query = delete(cls)
+        for key, value in {'user_id': user_id, 'bot_id': bot_id, **data}.items():
+            query = query.where(getattr(cls, key) == value)
+        await session.execute(query)
         return 0
 
     @classmethod
@@ -1257,10 +1279,10 @@ class Bind(BaseModel):
     @classmethod
     @with_session
     async def get_group_all_uid(cls: Type[T_Bind], session: AsyncSession, group_id: str):
-        """根据传入`group_id`获取该群号下所有绑定`uid`列表"""
+        """返回群号精确命中的全部绑定行；group_id 按下划线分隔。"""
         result = await session.scalars(select(cls).where(col(cls.group_id).contains(group_id)))
         data = result.all()
-        return data[0] if data else None
+        return [row for row in data if group_id in (row.group_id or '').split('_')]
 
 
 class User(BaseModel):
@@ -1526,7 +1548,7 @@ class User(BaseModel):
 
         也就是全部失效CK的列表
         """
-        data = await cls.get_all_user()
+        data = await cls.get_all_user(without_error=False)
         return [_u.cookie for _u in data if _u.cookie and _u.status]
 
     @classmethod
@@ -1627,13 +1649,11 @@ class User(BaseModel):
 
         # 随机取CK
         if condition:
-            for i in condition:
-                sql = select(cls).where(getattr(cls, i) == condition[i]).order_by(func.random())
-                data = await session.execute(sql)
-                user_list = data.scalars().all()
-                break
-            else:
-                user_list = await cls.get_all_user()
+            sql = select(cls)
+            for key, value in condition.items():
+                sql = sql.where(getattr(cls, key) == value)
+            data = await session.execute(sql.order_by(func.random()))
+            user_list = data.scalars().all()
         else:
             user_list = await cls.get_all_user()
 

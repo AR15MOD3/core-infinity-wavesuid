@@ -6,5 +6,7 @@
   "serviceDir": "",
   "mediaFormat": "png",
   "scene": "group",
-  "commandTimeout": 90
+  "commandTimeout": 90,
+  "ownerBot": "",
+  "dataDir": ""
 }

@@ -1,5 +1,9 @@
 """日志。标准 logging + success/trace 两个额外级别。"""
 
+from contextvars import ContextVar
+
+command_log_scope = ContextVar("rover_command_log_scope", default=False)
+
 import logging
 import os
 import sys
@@ -12,6 +16,16 @@ logging.addLevelName(TRACE, "TRACE")
 
 
 class RoverLogger(logging.Logger):
+    def _log(self, level, msg, args, exc_info=None, extra=None,
+             stack_info=False, stacklevel=1):
+        if command_log_scope.get():
+            # Includes private login and asynchronous receipt jobs. Exception
+            # messages, args, extra and tracebacks can all contain credentials.
+            msg, args = "[命令] 处理记录（内容已隐藏）", ()
+            exc_info, extra, stack_info = None, None, False
+        super()._log(level, msg, args, exc_info=exc_info, extra=extra,
+                     stack_info=stack_info, stacklevel=stacklevel + 1)
+
     def success(self, msg: Any, *args: Any, **kwargs: Any) -> None:
         if self.isEnabledFor(SUCCESS):
             self._log(SUCCESS, msg, args, **kwargs)

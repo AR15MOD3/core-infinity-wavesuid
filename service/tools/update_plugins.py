@@ -8,7 +8,7 @@ GitHub 不可达时自动改走 cnb.cool 镜像。
 
 import argparse
 import os
-import shutil
+import secrets
 import subprocess
 import sys
 from pathlib import Path
@@ -88,26 +88,43 @@ def is_unreachable(result: subprocess.CompletedProcess) -> bool:
     return any(token in text for token in _UNREACHABLE)
 
 
-def _rm_incomplete(dest: Path) -> None:
-    if dest.exists():
-        shutil.rmtree(dest, ignore_errors=True)
+class SyncError(RuntimeError):
+    """A failed or unverified upstream operation; no successful install receipt."""
+
+
+def checked(args, cwd=None, timeout=None):
+    result = run(args, cwd=cwd, timeout=timeout)
+    if result.returncode:
+        raise SyncError("upstream command failed; output withheld")
+    return result
+
+
+def validate_tree(name, dest):
+    if dest.is_symlink() or not (dest / ".git").is_dir():
+        raise SyncError("upstream repository missing")
+    package = dest / name / "__init__.py"
+    if not package.is_file() or package.is_symlink():
+        raise SyncError("upstream package missing")
+    checked(["git", "rev-parse", "--verify", "HEAD"], cwd=dest, timeout=PULL_TIMEOUT)
 
 
 def clone_with_fallback(name: str, dest: Path, github: str, cnb: str) -> str:
-    result = run(["git", "clone", "--depth", "1", github, str(dest)], timeout=CLONE_TIMEOUT)
-    source = "github"
-    if result.returncode:
-        _rm_incomplete(dest)
-        if not is_unreachable(result):
-            return f"{name}: 克隆失败 {result.stderr.strip()[:160]}"
-        print(f"{name}: GitHub 不可达, 改用 cnb {cnb}")
-        result = run(["git", "clone", "--depth", "1", cnb, str(dest)], timeout=CLONE_TIMEOUT)
-        source = "cnb"
+    if dest.exists() or dest.is_symlink():
+        raise SyncError("clone destination already exists")
+    for source, url in (("github", github), ("cnb", cnb)):
+        # Each attempt owns a fresh sibling. Failures are preserved, never deleted.
+        stage = dest.with_name(dest.name + ".clone-" + secrets.token_hex(16))
+        result = run(["git", "clone", "--depth", "1", url, str(stage)], timeout=CLONE_TIMEOUT)
         if result.returncode:
-            _rm_incomplete(dest)
-            return f"{name}: cnb 克隆也失败 {result.stderr.strip()[:160]}"
-    head = run(["git", "log", "--oneline", "-1"], cwd=dest).stdout.strip()
-    return f"{name}: 已克隆 ({source}) {head}"
+            if source == "github" and is_unreachable(result):
+                continue
+            raise SyncError("upstream clone failed; staging retained")
+        validate_tree(name, stage)
+        if dest.exists() or dest.is_symlink():
+            raise SyncError("clone destination changed; staging retained")
+        stage.rename(dest)
+        return f"{name}: 已克隆 ({source})"
+    raise SyncError("upstream sources unavailable")
 
 
 def _other_remote(origin: str, github: str, cnb: str):
@@ -142,32 +159,25 @@ def pull_with_fallback(name: str, dest: Path, github: str, cnb: str) -> Optional
 
 def sync_one(name: str, urls: dict) -> str:
     dest = PLUGINS_DIR / name
-    github, cnb = urls["github"], urls["cnb"]
-    if not (dest / ".git").is_dir():
-        if dest.exists():
-            return f"{name}: 目录已存在但不是 git 仓库, 请手工处理 {dest}"
-        return clone_with_fallback(name, dest, github, cnb)
-
-    dirty = run(["git", "status", "--porcelain"], cwd=dest).stdout
-    local_edits = [ln for ln in dirty.splitlines() if not ln.startswith("??")]
-    if local_edits:
-        return f"{name}: 有本地改动, 已跳过(本地差异应写进 rover/hooks.py):\n    " + "\n    ".join(
-            local_edits[:5]
-        )
-
-    before = run(["git", "rev-parse", "--short", "HEAD"], cwd=dest).stdout.strip()
-    err = pull_with_fallback(name, dest, github, cnb)
-    if err:
-        return err
-    after = run(["git", "rev-parse", "--short", "HEAD"], cwd=dest).stdout.strip()
-    if before == after:
-        return f"{name}: 已是最新 {after}"
-    log = run(["git", "log", "--oneline", f"{before}..{after}"], cwd=dest).stdout.strip()
-    return f"{name}: {before} → {after}\n    " + "\n    ".join(log.splitlines()[:8])
+    if not dest.exists():
+        return clone_with_fallback(name, dest, urls["github"], urls["cnb"])
+    validate_tree(name, dest)
+    dirty = checked(["git", "status", "--porcelain"], cwd=dest, timeout=PULL_TIMEOUT).stdout
+    if any(not line.startswith("??") for line in dirty.splitlines()):
+        raise SyncError("local changes present; upstream update not performed")
+    before = checked(["git", "rev-parse", "--short", "HEAD"], cwd=dest, timeout=PULL_TIMEOUT).stdout.strip()
+    error = pull_with_fallback(name, dest, urls["github"], urls["cnb"])
+    if error:
+        raise SyncError("upstream pull failed")
+    validate_tree(name, dest)
+    after = checked(["git", "rev-parse", "--short", "HEAD"], cwd=dest, timeout=PULL_TIMEOUT).stdout.strip()
+    return f"{name}: 已是最新" if before == after else f"{name}: 已更新"
 
 
 def check_compat() -> int:
     """更新后自检: 上游有没有用到本运行时还没提供的模块。"""
+    for name in REPOS:
+        validate_tree(name, PLUGINS_DIR / name)
     sys.path.insert(0, str(PLUGINS_DIR.parent))
     from rover import compat
 
@@ -189,13 +199,16 @@ def main() -> None:
     PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
     (PLUGINS_DIR / "__init__.py").touch()
 
-    if not args.check_only:
-        for name, urls in REPOS.items():
-            print(sync_one(name, urls))
-
-    code = check_compat()
-    if not args.check_only:
-        print("\n更新后请重启服务, 并跑 tools/regression.py 自检。")
+    try:
+        if not args.check_only:
+            for name, urls in REPOS.items():
+                print(sync_one(name, urls))
+        code = check_compat()
+    except (SyncError, OSError):
+        print("Upstream update incomplete; retained staging requires review.", file=sys.stderr)
+        code = 1
+    if code == 0 and not args.check_only:
+        print("Upstream update verified; review before restarting service.")
     sys.exit(code)
 
 

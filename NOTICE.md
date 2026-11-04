@@ -17,7 +17,7 @@
 - 固定版本：commit `1f11a24c394f808d23dd410e99bb8ba2785084f9`
 - 作用：把上游依赖的 `gsuid_core`（命令注册、Event/Bot、渲染、数据库、资源下载）替换成独立的
   FastAPI 服务，使上游能在非 gsuid_core 环境里运行
-- 本仓库未修改其代码；同步方法见 [`service/UPSTREAM.md`](service/UPSTREAM.md)
+- 本仓库在该版本基础上修改了数据根隔离、实例认证、异步回执、网页登录结果、任务所有权、媒体缓存与数据库迁移等适配，原版权与许可保留；同步方法见 [`service/UPSTREAM.md`](service/UPSTREAM.md)
 
 因为这一部分是 "GPL-3.0"（不含 or later），**整仓库一起分发时按 GPL-3.0 理解**；
 只有 `rover/` 之外、本仓库原创的部分才带 "or later"。

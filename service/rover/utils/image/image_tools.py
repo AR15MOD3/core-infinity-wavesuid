@@ -9,9 +9,11 @@ __all__ = ["crop_center_img"]
 
 def crop_center_img(img: Image.Image, based_w: int, based_h: int) -> Image.Image:
     # 确定图片的长宽
-    based_scale = "%.3f" % (based_w / based_h)
+    if based_w <= 0 or based_h <= 0:
+        raise ValueError("target dimensions must be positive")
+    based_scale = based_w / based_h
     w, h = img.size
-    scale_f = "%.3f" % (w / h)
+    scale_f = w / h
     new_w = math.ceil(based_h * float(scale_f))
     new_h = math.ceil(based_w / float(scale_f))
     if scale_f > based_scale:

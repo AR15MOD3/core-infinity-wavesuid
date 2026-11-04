@@ -1,10 +1,11 @@
 """数据目录。根为 service/data。"""
 
+import os
 from pathlib import Path
 from typing import List, Optional, Union
 
 core_path = Path(__file__).parent
-data_path = Path(__file__).parents[1] / "data"
+data_path = Path(os.environ["ROVER_DATA_DIR"]).resolve() if os.environ.get("ROVER_DATA_DIR") else Path(__file__).parents[1] / "data"
 
 
 def get_res_path(_path: Optional[Union[str, List[str], Path]] = None) -> Path:

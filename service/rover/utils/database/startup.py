@@ -1,4 +1,5 @@
 import importlib
+import re
 from typing import List
 
 from sqlmodel import SQLModel
@@ -29,7 +30,7 @@ def import_database_models() -> None:
         try:
             importlib.import_module(module_name)
         except Exception as e:
-            logger.warning(f"[数据库] 导入模型模块失败: {module_name}, 跳过对应表创建: {e}")
+            raise RuntimeError(f'database model import failed: {module_name}') from e
 
 
 async def create_core_tables() -> None:
@@ -41,12 +42,43 @@ async def create_core_tables() -> None:
 
 async def trans_adapter() -> None:
     async with base_models.async_maker() as session:
-        for _t in exec_list:
+        for position, _t in enumerate(exec_list):
             try:
+                if await _migration_present(session, _t):
+                    continue
                 await session.execute(text(_t))
                 await session.commit()
-            except Exception:  # noqa: E722
-                pass
+            except Exception as primary:
+                try:
+                    await session.rollback()
+                except Exception as rollback_error:
+                    primary._database_rollback_error = rollback_error
+                primary.add_note(f'database migration {position} incomplete; startup must not report ready')
+                raise
+
+
+async def _migration_present(session, statement):
+    """Skip only schema-proven completed DDL, never arbitrary errors.
+
+    Legacy upstream lists replay on startup. A column already removed is the
+    completed state of DROP COLUMN, just as an existing column completes ADD.
+    get_columns must still succeed: a missing table or unreadable schema is
+    not evidence that the migration completed.
+    """
+    from sqlalchemy import inspect
+    column = re.fullmatch(r'\s*ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\s+.+;?\s*', statement, re.I)
+    index = re.fullmatch(r'\s*CREATE\s+INDEX\s+(\w+)\s+ON\s+(\w+)\s*\([^;]+\);?\s*', statement, re.I)
+    removed = re.fullmatch(r'\s*ALTER\s+TABLE\s+(\w+)\s+DROP\s+COLUMN\s+(\w+)\s*;?\s*', statement, re.I)
+    if column:
+        table, name = column.groups()
+        return await session.run_sync(lambda s: any(row['name'] == name for row in inspect(s.connection()).get_columns(table)))
+    if index:
+        name, table = index.groups()
+        return await session.run_sync(lambda s: any(row['name'] == name for row in inspect(s.connection()).get_indexes(table)))
+    if removed:
+        table, name = removed.groups()
+        return await session.run_sync(lambda s: not any(row['name'] == name for row in inspect(s.connection()).get_columns(table)))
+    return False
 
 
 async def init_all() -> None:

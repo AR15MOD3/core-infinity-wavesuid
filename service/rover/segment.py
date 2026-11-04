@@ -85,6 +85,8 @@ class MessageSegment:
         for msg in content_list:
             if isinstance(msg, Message):
                 msg_list.append(msg)
+            elif isinstance(msg, HtmlBytes):
+                msg_list.append(MessageSegment.image(msg))
             elif isinstance(msg, (bytes, bytearray, memoryview)):
                 msg_list.append(MessageSegment.image(bytes(msg)))
             else:

@@ -1,128 +1,48 @@
-﻿# Install the waves service for core-infinity-wavesuid (Windows).
-#
-#   powershell -ExecutionPolicy Bypass -File .\install.ps1
-#   powershell -ExecutionPolicy Bypass -File .\install.ps1 -ServiceDir D:\TelyinCore\waves-service
-#   powershell -ExecutionPolicy Bypass -File .\install.ps1 -WithPlaywright
-#
-# What it does:
-#   1. makes sure uv + git exist
-#   2. creates <ServiceDir>\.venv (Python 3.10-3.13)
-#   3. installs service dependencies
-#   4. clones XutheringWavesUID / RoverSign / ScoreEcho into <ServiceDir>\plugins
-#   5. writes the plugin config.json (paths + autoStart) if you don't have one
-#   6. optionally installs Playwright + Chromium (only needed for PNG cards)
-#
-# It never touches your game account, and never starts anything in the background.
-
+# Explicit, per-Bot installer. No background process or account operation.
 [CmdletBinding()]
 param(
-    [string]$ServiceDir = "",
+    [Parameter(Mandatory=$true)][string]$ServiceDir,
+    [Parameter(Mandatory=$true)][string]$OwnerBot,
+    [Parameter(Mandatory=$true)][string]$ConfigPath,
+    [Parameter(Mandatory=$true)][string]$DataDir,
+    [Parameter(Mandatory=$true)][int]$Port,
     [string]$PythonVersion = "3.11",
+    [switch]$AllowDownloads,
     [switch]$WithPlaywright,
-    [switch]$SkipPluginConfig
+    [switch]$Plan
 )
-
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Bundled = Join-Path $Root "service"
-if ($ServiceDir.Trim()) {
-    $Service = [IO.Path]::GetFullPath($ServiceDir)
-} else {
-    $Service = $Bundled
+$Service = [IO.Path]::GetFullPath($ServiceDir)
+$Py = Join-Path $Service ".venv\Scripts\python.exe"
+$Provision = Join-Path $Root "tools\provision.py"
+$ProvisionArgs = @($Provision, "--service-dir", $Service, "--config-path", $ConfigPath,
+    "--owner", $OwnerBot, "--data-dir", $DataDir, "--port", "$Port", "--python", $Py)
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) { throw "Install Python first; no automatic bootstrap." }
+& python @ProvisionArgs
+if ($LASTEXITCODE -ne 0) { throw "Preflight failed; nothing installed." }
+if ($Plan) { exit 0 }
+if (-not $AllowDownloads) { throw "Use -Plan, or explicitly pass -AllowDownloads for uv dependencies/upstream downloads." }
+foreach ($Tool in @("uv", "git")) {
+    if (-not (Get-Command $Tool -ErrorAction SilentlyContinue)) { throw "Install $Tool explicitly first." }
 }
-$Venv = Join-Path $Service ".venv"
-$Py = Join-Path $Venv "Scripts\python.exe"
-
-function Step($text) { Write-Host "`n==> $text" -ForegroundColor Cyan }
-function Fail($text) { Write-Host $text -ForegroundColor Red; exit 1 }
-
-if (-not (Test-Path (Join-Path $Bundled "rover\main.py"))) {
-    Fail "找不到 $Bundled\rover\main.py —— 请把 install.ps1 放在插件仓库根目录运行。"
+& python @ProvisionArgs --apply
+if ($LASTEXITCODE -ne 0) { throw "Service staging failed." }
+if (-not (Test-Path -LiteralPath $Py)) {
+    & uv venv --python $PythonVersion (Join-Path $Service ".venv")
+    if ($LASTEXITCODE -ne 0) { throw "venv creation failed." }
 }
-
-# 装到仓库外面时，先把骨架拷过去（已有的 venv / data / plugins 不覆盖）
-if ($Service -ne (Resolve-Path $Bundled).Path) {
-    Step "准备服务目录 $Service"
-    New-Item -ItemType Directory -Force -Path $Service | Out-Null
-    foreach ($part in @("rover", "tools", "plugins")) {
-        $from = Join-Path $Bundled $part
-        $to = Join-Path $Service $part
-        if (Test-Path $from) { Copy-Item $from $to -Recurse -Force }
-    }
-    Copy-Item (Join-Path $Bundled "pyproject.toml") $Service -Force
-    Copy-Item (Join-Path $Bundled "UPSTREAM.md") $Service -Force -ErrorAction SilentlyContinue
-}
-
-# ---- 1. uv + git ------------------------------------------------------------
-Step "检查 uv 与 git"
-if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    Write-Host "没有 uv，尝试安装（官方脚本）..."
-    try {
-        Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
-        $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
-    } catch {
-        Fail "uv 安装失败。请手工装：powershell -c ""irm https://astral.sh/uv/install.ps1 | iex"""
-    }
-}
-if (-not (Get-Command uv -ErrorAction SilentlyContinue)) { Fail "uv 仍然不可用，请重开一个终端再试。" }
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Fail "缺少 git。请先安装 Git for Windows（https://git-scm.com/download/win），再重跑本脚本。"
-}
-Write-Host ("uv " + (uv --version))
-
-# ---- 2. venv ----------------------------------------------------------------
-Step "创建虚拟环境（Python $PythonVersion）"
-if (-not (Test-Path $Py)) {
-    uv venv --python $PythonVersion $Venv
-    if ($LASTEXITCODE -ne 0) { Fail "虚拟环境创建失败。可试：uv python install $PythonVersion" }
-}
-& $Py -c "import sys; print('python', sys.version.split()[0])"
-
-# ---- 3. dependencies --------------------------------------------------------
-Step "安装服务依赖（第一次要下载几百 MB，耐心等）"
-uv pip install --python $Py -r (Join-Path $Service "pyproject.toml")
-if ($LASTEXITCODE -ne 0) { Fail "依赖安装失败，见上面的输出。" }
-
-# ---- 4. upstream plugins ----------------------------------------------------
-Step "拉取上游插件（XutheringWavesUID / RoverSign / ScoreEcho）"
+& uv pip install --python $Py -r (Join-Path $Service "pyproject.toml")
+if ($LASTEXITCODE -ne 0) { throw "Dependency install failed." }
 & $Py (Join-Path $Service "tools\update_plugins.py")
-if ($LASTEXITCODE -ne 0) { Fail "上游插件拉取失败（网络或 GitHub 限流）。稍后重跑本脚本即可续上。" }
-
-# ---- 5. optional playwright -------------------------------------------------
+if ($LASTEXITCODE -ne 0) { throw "Upstream download failed." }
 if ($WithPlaywright) {
-    Step "安装 Playwright 与 Chromium（只有 PNG 卡片需要）"
-    uv pip install --python $Py playwright
+    & uv pip install --python $Py playwright
+    if ($LASTEXITCODE -ne 0) { throw "Playwright dependency install failed." }
     & $Py -m playwright install chromium
-    if ($LASTEXITCODE -ne 0) { Write-Host "Playwright 安装失败；不影响文字与 HTML 卡片。" -ForegroundColor Yellow }
+    if ($LASTEXITCODE -ne 0) { throw "Chromium install failed; not PNG-ready." }
 }
-
-# ---- 6. plugin config -------------------------------------------------------
-if (-not $SkipPluginConfig) {
-    $Config = Join-Path $Root "config.json"
-    if (Test-Path $Config) {
-        Step "已有 config.json，未改动"
-        Write-Host "  python     = $Py"
-        Write-Host "  serviceDir = $Service"
-    } else {
-        Step "写入插件 config.json"
-        $example = Get-Content (Join-Path $Root "config.example.json") -Raw | ConvertFrom-Json
-        $example.python = $Py
-        $example.serviceDir = $Service
-        $example.autoStart = $true
-        $example | ConvertTo-Json -Depth 5 | Set-Content -Path $Config -Encoding UTF8
-        Write-Host "  已写入 $Config（autoStart = true）"
-    }
-}
-
-Step "完成"
-$summary = @"
-插件配置（Config 页面里也能看到）：
-  python      = $Py
-  serviceDir  = $Service
-  autoStart   = true
-  mediaFormat = html    （要 PNG 卡片就跑一次 -WithPlaywright 再改成 png）
-
-下一步：在 TelyinCore 的插件页启用「鸣潮查询」，调一次 waves_status 看是否在线。
-卸载：停用插件 → 删掉 $Service 整个目录即可（账号数据在 $Service\data 里）。
-"@
-Write-Host $summary -ForegroundColor Green
+& python @ProvisionArgs --apply --write-config
+if ($LASTEXITCODE -ne 0) { throw "Scoped config preservation/creation failed." }
+Write-Host "Service staged. Existing config is preserved, including its old serviceDir. Review paths explicitly before enable."
+Write-Host "No Bot started, no QQ sent, no account data copied. PNG requires -WithPlaywright."

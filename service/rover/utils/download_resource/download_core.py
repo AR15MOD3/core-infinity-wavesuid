@@ -115,7 +115,8 @@ async def download_atag_file(
             logger.info(f"{TAG} {plugin_name} {endpoint} 下载 {name}")
             temp_num += 1
             size_temp += size
-            TASK = asyncio.create_task(download(file_url, path, name, client, TAG))
+            from rover.work_owner import owner as work_owner
+            TASK = work_owner.spawn(lambda:download(file_url, path, name, client, TAG),name='waves-download')
             TASKS.append(TASK)
             if size_temp >= 1500000:
                 await asyncio.gather(*TASKS)

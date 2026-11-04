@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import os
 import time
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +12,7 @@ import httpx
 
 from rover.data_store import get_res_path
 from rover.logger import logger
+from rover.pool import to_thread as owned_thread
 
 _SGET_CONNECT_TIMEOUT: float = 3.0
 _SGET_READ_TIMEOUT: float = 8.0
@@ -33,16 +35,25 @@ async def _read_cached(url: str) -> Optional[httpx.Response]:
         return None
     if time.time() - path.stat().st_mtime > _SGET_CACHE_TTL:
         return None
-    content = await asyncio.to_thread(path.read_bytes)
+    content = await owned_thread(path.read_bytes)()
     request = httpx.Request("GET", url)
     return httpx.Response(200, content=content, request=request)
 
 
+@owned_thread
+def _commit_cache(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, made = tempfile.mkstemp(prefix='.' + path.name + '-', suffix='.tmp', dir=path.parent)
+    temp = Path(made)
+    try:
+        with os.fdopen(fd, 'wb') as output:
+            output.write(content); output.flush(); os.fsync(output.fileno())
+        os.replace(temp, path)
+    finally:
+        if temp.exists(): temp.unlink()
+
 async def _write_cache(url: str, content: bytes) -> None:
-    path = _url_cache_path(url)
-    tmp_path = path.with_suffix(".tmp")
-    await asyncio.to_thread(tmp_path.write_bytes, content)
-    await asyncio.to_thread(os.replace, tmp_path, path)
+    await _commit_cache(_url_cache_path(url), content)
 
 
 async def sget(url: str, use_cache: bool = False) -> httpx.Response:
@@ -51,7 +62,7 @@ async def sget(url: str, use_cache: bool = False) -> httpx.Response:
         if cached is not None:
             return cached
 
-    logger.info(f"[图片] 开始下载: {url}")
+    logger.info(f"[图片] 开始下载: url-sha256={hashlib.sha256(url.encode()).hexdigest()[:16]}")
     timeout = httpx.Timeout(
         connect=_SGET_CONNECT_TIMEOUT,
         read=_SGET_READ_TIMEOUT,

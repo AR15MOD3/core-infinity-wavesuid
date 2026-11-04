@@ -1,6 +1,8 @@
 import sys
 import json
 import datetime
+import os
+import uuid
 from copy import deepcopy
 from typing import Any, Dict, List, Union
 from pathlib import Path
@@ -161,7 +163,7 @@ class StringConfig:
         安全地将配置文件从旧路径迁移到新路径。
 
         只有当新路径不存在配置文件时，才会进行迁移操作。
-        迁移过程：读取旧配置 -> 写入新路径 -> 删除旧文件
+        迁移过程：读取旧配置 -> 原子发布新路径；保留旧文件作为恢复输入。
 
         Args:
             old_path: 旧的配置文件路径。
@@ -180,16 +182,14 @@ class StringConfig:
             with open(old_path, "r", encoding="UTF-8") as f:
                 content = f.read()
 
-            # 写入新路径
-            with open(new_path, "w", encoding="UTF-8") as f:
-                f.write(content)
-
-            # 删除旧文件
-            old_path.unlink()
+            with atomic_save(str(new_path), text_mode=False, overwrite=False,
+                             overwrite_part=False, file_perms=0o600) as f:
+                f.write(content.encode('utf-8'))
 
             logger.info(f"[{self.config_name}] 配置文件已迁移: {old_path} -> {new_path}")
         except Exception as e:
-            logger.error(f"[{self.config_name}] 配置文件迁移失败: {e}")
+            logger.error(f"[{self.config_name}] 配置文件迁移失败: {type(e).__name__}")
+            raise
 
     def _get_caller_plugin_name(self):
         """调用者所在的插件包名(service 下第一级目录), 运行时自身返回 None。"""
@@ -252,6 +252,7 @@ class StringConfig:
                 logger.error(f"[{self.config_name}] 配置文件写入失败!")
 
     def repair_config(self):
+        original = self.CONFIG_PATH.read_bytes()
         with open(self.CONFIG_PATH, "r", encoding="UTF-8") as f:
             logger.warning(f"[{self.config_name}] 配置文件格式已变动, 正在修复...")
             temp_config: Dict[str, Any] = json.load(f)
@@ -292,8 +293,16 @@ class StringConfig:
                 logger.warning(f"[{self.config_name}] 已移除不符合配置结构的旁路字段: {k} ({type(v).__name__})")
                 temp_config.pop(k)
 
-        with open(self.CONFIG_PATH, "w", encoding="UTF-8") as f:
-            json.dump(temp_config, f, indent=4, ensure_ascii=False)
+        if self.CONFIG_PATH.read_bytes() != original:
+            raise RuntimeError('configuration changed during repair; refusing overwrite')
+        backup = self.CONFIG_PATH.with_name(self.CONFIG_PATH.name + '.repair-' + uuid.uuid4().hex + '.bak')
+        with backup.open('xb') as stream:
+            stream.write(original);stream.flush();os.fsync(stream.fileno())
+        with atomic_save(str(self.CONFIG_PATH), text_mode=False, overwrite=True,
+                         overwrite_part=False, file_perms=0o600) as stream:
+            if self.CONFIG_PATH.read_bytes() != original:
+                raise RuntimeError('configuration changed before repair publication')
+            stream.write(json.dumps(temp_config, indent=4, ensure_ascii=False).encode('utf-8'))
 
     def update_config(self):
         # 最多修复一次后重试 decode; repair_config 已保证收敛, 失败兜底重置默认,
@@ -316,8 +325,7 @@ class StringConfig:
                 if attempt == 0:
                     self.repair_config()
                 else:
-                    logger.error(f"[{self.config_name}] 配置文件无法解析, 已回退默认值!")
-                    self.config = dict(self.config_list)
+                    raise ValueError('configuration still invalid after one repair; default overwrite refused')
 
         # 逐键调和: 补默认 / 类型不符重置 / 刷新元数据; RepeatGroupConfig 递归(见函数)
         self.config = reconcile_config(self.config, self.config_list, config_name=self.config_name)
@@ -349,84 +357,94 @@ class StringConfig:
                 return BoolConfig("缺省值", "获取错误的配置项", False)
 
     def set_config(self, key: str, value: Union[str, List, bool, Dict, int]) -> bool:
-        if key in self.config_list:
-            item = self.config[key]
-            temp = item.data
-            # 组配置: 前端回传 List[{字段->值}], 用 template 重建成 List[Dict[str, ConfigItem]]。
-            # 必须先于下方通用 list==list 分支, 否则会把裸值直接塞进 data 破坏结构。
-            if isinstance(item, RepeatGroupConfig) and isinstance(value, list):
-                item.data = [_rebuild_group_item(r, item.template) for r in value if isinstance(r, dict)]
-                self.write_config()
-                return True
-            if type(value) == type(temp):  # noqa: E721
-                # 设置值
-                self.config[key].data = value  # type: ignore
-                # 重新写回
-                self.write_config()
-                return True
-            elif isinstance(item, TimeRConfig) and isinstance(value, list):
-                # TimeRConfig 接受 list 类型并转换为 tuple
-                self.config[key].data = tuple(value)  # type: ignore
-                self.write_config()
-                return True
-            elif isinstance(item, TimeRangeConfig) and isinstance(value, (list, tuple)) and len(value) == 2:
-                # 前端/命令传入嵌套 list, 落库需转换为嵌套 tuple
-                start, end = value
-                try:
-                    item.data = ((int(start[0]), int(start[1])), (int(end[0]), int(end[1])))
-                except (ValueError, TypeError, IndexError):
-                    logger.warning(f"[{self.config_name}] 配置项 {key} 时间范围格式非法: {value}")
+        from copy import deepcopy
+        before = deepcopy(self.config)
+        try:
+            if key in self.config_list:
+                item = self.config[key]
+                temp = item.data
+                # 组配置: 前端回传 List[{字段->值}], 用 template 重建成 List[Dict[str, ConfigItem]]。
+                # 必须先于下方通用 list==list 分支, 否则会把裸值直接塞进 data 破坏结构。
+                if isinstance(item, RepeatGroupConfig) and isinstance(value, list):
+                    item.data = [_rebuild_group_item(r, item.template) for r in value if isinstance(r, dict)]
+                    self.write_config()
+                    return True
+                if type(value) == type(temp):  # noqa: E721
+                    # 设置值
+                    self.config[key].data = value  # type: ignore
+                    # 重新写回
+                    self.write_config()
+                    return True
+                elif isinstance(item, TimeRConfig) and isinstance(value, list):
+                    # TimeRConfig 接受 list 类型并转换为 tuple
+                    self.config[key].data = tuple(value)  # type: ignore
+                    self.write_config()
+                    return True
+                elif isinstance(item, TimeRangeConfig) and isinstance(value, (list, tuple)) and len(value) == 2:
+                    # 前端/命令传入嵌套 list, 落库需转换为嵌套 tuple
+                    start, end = value
+                    try:
+                        item.data = ((int(start[0]), int(start[1])), (int(end[0]), int(end[1])))
+                    except (ValueError, TypeError, IndexError):
+                        logger.warning(f"[{self.config_name}] 配置项 {key} 时间范围格式非法: {value}")
+                        return False
+                    self.write_config()
+                    return True
+                elif isinstance(item, FloatConfig) and isinstance(value, int) and not isinstance(value, bool):
+                    # 前端可能以整数 JSON (如 10, 而非 10.0) 传入浮点配置, 归一化为 float
+                    item.data = float(value)
+                    self.write_config()
+                    return True
+                elif isinstance(item, DateConfig) and isinstance(value, str):
+                    # 前端/命令传入 ISO 日期字符串, 落库需转换为 datetime.date
+                    try:
+                        item.data = datetime.date.fromisoformat(value)
+                    except ValueError:
+                        logger.warning(f"[{self.config_name}] 配置项 {key} 日期格式非法: {value}")
+                        return False
+                    self.write_config()
+                    return True
+                else:
+                    logger.warning(f"[{self.config_name}] 配置项 {key} 写入类型不正确!")
                     return False
-                self.write_config()
-                return True
-            elif isinstance(item, FloatConfig) and isinstance(value, int) and not isinstance(value, bool):
-                # 前端可能以整数 JSON (如 10, 而非 10.0) 传入浮点配置, 归一化为 float
-                item.data = float(value)
-                self.write_config()
-                return True
-            elif isinstance(item, DateConfig) and isinstance(value, str):
-                # 前端/命令传入 ISO 日期字符串, 落库需转换为 datetime.date
-                try:
-                    item.data = datetime.date.fromisoformat(value)
-                except ValueError:
-                    logger.warning(f"[{self.config_name}] 配置项 {key} 日期格式非法: {value}")
-                    return False
-                self.write_config()
-                return True
             else:
-                logger.warning(f"[{self.config_name}] 配置项 {key} 写入类型不正确!")
                 return False
-        else:
-            return False
+        except BaseException:
+            self.config = before
+            raise
 
     def migrate_from(self, old_configs: Union["StringConfig", List["StringConfig"]]):
         """
         自动从旧配置实例中吸取同名键的数据（仅迁移用户设定的 data 值，保留新配置的 title/desc）。
-        完成后自动从旧文件中清理该键。
+        先持久化目标，再从旧文件清理；失败传播，清理失败保留旧输入。
         """
         if not isinstance(old_configs, list):
             old_configs = [old_configs]
 
-        changed = False
-
-        for old_config in old_configs:
-            old_changed = False
-
-            for key in self.config_list:
-                if key in old_config.config:
-                    # 仅转移最核心的 data 用户数据，这样就不会覆盖新配置的文本描述
-                    self.config[key].data = old_config.config[key].data  # type: ignore
-                    changed = True
-
-                    old_config.config.pop(key)
-                    old_changed = True
-                    logger.info(f"[配置迁移] 配置项 {key}: {old_config.config_name} -> {self.config_name}")
-
-            if old_changed:
-                old_config.sort_config()
-
-        if changed:
-            self.sort_config()
+        originals = deepcopy(self.config)
+        planned = [(old, [key for key in self.config_list if key in old.config])
+                   for old in old_configs if old is not self]
+        if not any(keys for _, keys in planned):
+            return
+        try:
+            for old, keys in planned:
+                for key in keys:
+                    self.config[key].data = deepcopy(old.config[key].data)
+            self.sort_config()  # Durable destination BEFORE deleting any source key.
+        except BaseException:
+            self.config = originals
+            raise
+        for old, keys in planned:
+            if not keys:
+                continue
+            prior = deepcopy(old.config)
+            try:
+                for key in keys:
+                    old.config.pop(key)
+                old.sort_config()
+            except BaseException:
+                old.config = prior
+                raise
 
 
 all_config_list: Dict[str, StringConfig] = {}

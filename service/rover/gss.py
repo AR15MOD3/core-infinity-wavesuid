@@ -13,7 +13,7 @@ class ServerState:
         self.bot_users: Dict[str, list] = {}
 
     def get_bot(self, bot_id: str = DEFAULT_BOT_ID) -> PushBot:
-        return self.active_bot.get(bot_id) or self.active_bot[DEFAULT_BOT_ID]
+        return self.active_bot[bot_id]
 
 
 gss = ServerState()

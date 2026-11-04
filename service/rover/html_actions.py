@@ -1,6 +1,8 @@
 """给渲染好的 HTML 挂上点击动作: 点角色出面板。按渲染上下文的顺序与文档顺序一一对应。"""
 
 import re
+from html import escape
+from contextvars import ContextVar
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from rover.logger import logger
@@ -17,7 +19,7 @@ _BODY_END = re.compile(r"</body\s*>", re.I)
 
 _BRIDGE = """
 <style>
-[data-ww-cmd]{cursor:pointer;position:relative}
+[data-ww-cmd]{cursor:pointer}
 [data-ww-cmd]:hover{outline:2px solid rgba(255,214,102,.95);outline-offset:2px}
 html,body{margin:0;padding:0;overflow:hidden;background:transparent}
 html{width:100%}
@@ -103,17 +105,38 @@ def _roles_from(context: dict, *paths: Iterable[str]) -> List[dict]:
 
 
 # 矩阵模板的上下文里只有图标没有角色 id, 由 cards/matrix_roles 在构图时记下来补上
-_RECORDED_ROLE_IDS: List[str] = []
+_RECORDED_ROLE_IDS = ContextVar("matrix_role_ids", default=())
+_ROLE_RECORDING_SCOPE = ContextVar("matrix_role_scope", default=None)
+
+
+from contextlib import contextmanager
+
+@contextmanager
+def role_recording_scope():
+    """A single command owns records; inherited late contexts cannot reuse them."""
+    state = {'active': True}
+    scope_token = _ROLE_RECORDING_SCOPE.set(state)
+    records_token = _RECORDED_ROLE_IDS.set(())
+    try:
+        yield
+    finally:
+        state['active'] = False
+        _RECORDED_ROLE_IDS.reset(records_token)
+        _ROLE_RECORDING_SCOPE.reset(scope_token)
 
 
 def record_role_id(role_id: Any) -> None:
-    _RECORDED_ROLE_IDS.append(str(role_id))
+    scope = _ROLE_RECORDING_SCOPE.get()
+    if scope is None or not scope['active']:
+        return
+    _RECORDED_ROLE_IDS.set((*_RECORDED_ROLE_IDS.get(), str(role_id)))
 
 
 def _matrix_roles(context: dict) -> List[dict]:
     roles = _roles_from(context, ("modes", "teams", "roles"))
-    recorded = list(_RECORDED_ROLE_IDS)
-    _RECORDED_ROLE_IDS.clear()
+    scope = _ROLE_RECORDING_SCOPE.get()
+    recorded = list(_RECORDED_ROLE_IDS.get()) if scope is not None and scope['active'] else []
+    _RECORDED_ROLE_IDS.set(())
     real = [r for r in roles if not r.get("is_placeholder")]
     # 条数对不上说明记录与实际渲染错位了, 宁可不挂也不能挂错人
     if len(recorded) == len(real):
@@ -185,18 +208,25 @@ def merge_html_cards(parts: List[Any]) -> Any:
     if len(parts) == 1:
         return parts[0]
     base = parts[0].html
+    head_pattern = re.compile(r'<head\b[^>]*>(.*?)</head\s*>', re.S | re.I)
+    first_head = head_pattern.search(base)
+    if first_head is None or _CONTAINER.search(base) is None:
+        raise ValueError('multi-card composition requires an explicit shared head and container')
+    shared_head = first_head.group(1)
     extra: List[str] = []
     for part in parts[1:]:
+        head = head_pattern.search(part.html)
+        if (head is None or head.group(1) != shared_head
+                or getattr(part, 'template_name', '') != getattr(parts[0], 'template_name', '')):
+            raise ValueError('cannot merge cards with different styles or templates')
         found = _CONTAINER.search(part.html)
-        if found:
-            extra.append(found.group(0))
-    if not extra:
-        return parts[0]
+        if found is None:
+            raise ValueError('cannot silently discard a card without a container')
+        extra.append(found.group(0))
     block = "\n".join(extra)
-    if "</body" in base:
-        merged = base.replace("</body", block + "\n</body", 1)
-    else:
-        merged = base + block
+    if _BODY_END.search(base) is None:
+        raise ValueError('multi-card composition requires a closed body')
+    merged = _BODY_END.sub(lambda match: block + "\n" + match.group(0), base, count=1)
     return HtmlBytes(merged, getattr(parts[0], "template_name", ""))
 
 
@@ -220,8 +250,8 @@ def annotate_html(html: str, template_name: str, context: dict) -> str:
                         return tag
                     # 角色在卡面上只有头像, 名字另存一份: 给模型的文字摘要要认得出是谁
                     name = names[idx] if idx < len(names) else ""
-                    extra = f' data-ww-name="{name}"' if name else ""
-                    return f'{tag[:-1]} data-ww-cmd="{command}"{extra}>'
+                    extra = f' data-ww-name="{escape(str(name), quote=True)}"' if name else ""
+                    return f'{tag[:-1]} data-ww-cmd="{escape(str(command), quote=True)}"{extra}>'
 
                 html = _ROLE_TAGS.get(template_name, _ROLE_TAG).sub(repl, html)
                 if counter["i"] != len(commands):

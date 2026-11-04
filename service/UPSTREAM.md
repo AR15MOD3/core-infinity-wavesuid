@@ -1,31 +1,27 @@
-# 鸣潮服务（waves service）的出处与固定版本
+# 服务兼容层来源与更新边界
 
-本目录下的 `rover/` 与 `tools/update_plugins.py`、`pyproject.toml` 来自
-[dsh-plugin-waves](https://github.com/Loping151/dsh-plugin-waves) 的 `service/`，
-作者 Loping151，许可 **GPL-3.0**（见 `rover/LICENSE`）。
+rover/、tools/update_plugins.py、pyproject.toml 的原始来源是
+[Loping151/dsh-plugin-waves](https://github.com/Loping151/dsh-plugin-waves)，
+基线提交 1f11a24c394f808d23dd410e99bb8ba2785084f9，取用日期 2026-10-22。
+原作者 Loping151，许可 GPL-3.0，见 rover/LICENSE。来源中的 dsh 名称是上游项目名及兼容数据标识。
 
-- 固定到 commit：`1f11a24c394f808d23dd410e99bb8ba2785084f9`（"适配 dsh 0.2.1-rc.2"）
-- 取用日期：2026-10-22
-- 作用：把上游 XutheringWavesUID 依赖的 `gsuid_core` 替换成独立的 FastAPI 服务
-  （命令注册、Event/Bot、渲染、数据库、资源下载），使上游能在非 gsuid_core 环境运行
+## 本仓库维护的修改
 
-## 同步上游
+- 外置数据根、数据租约、Bot/实例身份认证与独立子进程管理。
+- 命令任务与增量回执、同用户同会话去重、取消和失败状态。
+- 库街区网页登录进度与结果回执、群聊中的私密资料保护。
+- 服务异步工作所有权、排空及故障证据；宿主能力保护不可省略。
+- PNG 渲染、媒体缓存、帮助回执、日志脱敏、数据库迁移幂等保护。
+- 配置、资源、下载、定时任务等运行路径的独立数据根适配。
 
-本仓库不修改 `rover/` 的任何一行。上游更新时：
+scoped_main.py、scope_identity.py 是桥接器的独立启动与身份适配模块。
+业务插件 XutheringWavesUID / RoverSign / ScoreEcho 在安装时拉取，不将账号数据或下载目录提交进仓库。
 
-```sh
-# 1. 拿一份新的
-git clone --depth 1 https://github.com/Loping151/dsh-plugin-waves.git /tmp/dsh-waves
-# 2. 覆盖
-rm -rf service/rover && cp -r /tmp/dsh-waves/service/rover service/rover
-find service/rover -name __pycache__ -type d -prune -exec rm -rf {} +
-cp /tmp/dsh-waves/service/tools/update_plugins.py service/tools/
-cp /tmp/dsh-waves/service/pyproject.toml service/
-cp /tmp/dsh-waves/LICENSE service/rover/LICENSE
-# 3. 改上面的 commit 号，跑一次 install.ps1 -SkipPluginConfig 自检
-```
+## 更新方法
 
-## 许可
+在独立检出目录对比新旧上游提交，逐文件合并，保留本仓库的隔离、任务所有权和回执改动。
+不要删除整个 rover 目录后覆盖，也不要直接覆盖正在运行的服务。
+更新后记录上游提交、许可与修改范围，运行本仓库测试及对应 Core 的宿主集成测试。
+使用新的版本化服务目录安装依赖；既有 Bot 配置由操作者审核后切换，不自动迁移账号库。
 
-`rover/` 是 GPL-3.0（不是 "or later"）。本仓库自己的代码是 GPL-3.0-or-later；
-两部分一起分发时，**整体按 GPL-3.0 理解**，`rover/` 部分不额外授予 "or later"。
+rover/ 适用 GPL-3.0；本仓库原创部分 GPL-3.0-or-later。合并分发按 GPL-3.0，保留各文件声明。

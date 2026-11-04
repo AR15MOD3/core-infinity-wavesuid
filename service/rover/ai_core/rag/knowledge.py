@@ -19,5 +19,5 @@ async def query_knowledge(
     exclude_sources: Optional[List[str]] = None,
 ) -> List[Any]:
     """检索知识库，返回带 payload / score 的结果列表。"""
-    logger.debug(f"[AI 知识库] 未接入向量库，检索返回空: {query!r}")
+    logger.debug("[AI 知识库] 未接入向量库，检索返回空")
     return []

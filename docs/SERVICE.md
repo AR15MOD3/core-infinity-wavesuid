@@ -1,56 +1,42 @@
-# 服务端（waves service）说明
+# 服务安装、升级与数据归属
 
-`service/` 是一个独立进程：上游 XutheringWavesUID + `rover` 兼容层，对外只有本地 HTTP。
+插件安装包共享；每个 Bot 使用自己的配置、端口、服务进程与数据根。
+安装包、版本化服务代码和账号数据是三个不同目录。不要在插件包内运行账号数据库。
 
-## 一键装
+## 安装
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-```
-
-默认装 HTML 卡片（浏览器能看）。要 PNG 卡片加 `-WithPlaywright`（多装 Chromium，约 150 MB）。
-
-## 手动装（脚本失败时照这个排）
-
-```powershell
-cd <插件仓库>
-uv venv --python 3.11 service\.venv
-uv pip install --python service\.venv\Scripts\python.exe -r service\pyproject.toml
-service\.venv\Scripts\python.exe service\tools\update_plugins.py
-```
-
-然后在插件配置里填：
-
-- `python` = `<插件仓库>\service\.venv\Scripts\python.exe`
-- `serviceDir` = `<插件仓库>\service`
-- `autoStart` = `true`
+先安装 Python、uv、git。install.ps1 必须显式提供 ServiceDir、OwnerBot、ConfigPath、DataDir、Port。
+先加 -Plan 核对计划；确认后用 -AllowDownloads -WithPlaywright 代替 -Plan。
+这会下载依赖、上游业务插件及 Chromium，不自动启动 Bot。完整命令示例见 README.md。
+Linux/macOS 使用 install.sh 对应参数，尚未完成这两个平台的实机验收。
+安装器不会覆盖内容不同的服务文件。已有 config.json 逐字节保留，未知字段也保留。
 
 ## 目录
 
-```
-service/
-  rover/            兼容层（第三方，GPL-3.0，勿改）
-  tools/            拉取/升级上游的脚本
-  plugins/          上游仓库（git clone 来的，不入库）
-  data/             运行数据：config.json、数据库、素材、日志、渲染产物
-  .venv/            独立虚拟环境
-```
+| 位置 | 内容 | 更新行为 |
+|---|---|---|
+| 插件包 | 桥接器、安装脚本、service 模板 | 市场更新代码 |
+| 外置版本化服务目录 | rover、scoped_main、venv、下载的业务插件 | 新版本单独安装，不覆盖运行中目录 |
+| Bot 的 infinity/plugins/core-infinity-wavesuid/config.json | 本 Bot 的服务路径、端口和所有者 | 安装器保留，操作者审核切换 |
+| 同一插件 runtime 下的 dataDir | 绑定、登录凭证、素材、缓存和日志 | 不进 Git，不跨 Bot 复制 |
 
-账号 token、绑定关系、抽卡记录都在 `service/data/`，不在插件目录里，也不会回显到页面。
+启用时宿主核对 Bot 身份与路径，桥接器校验实例身份；已有任意 health 成功不代表是自己的服务。
+不能通过手工 python -m rover.main 绕过身份与生命周期管理。
 
-## 常遇到的
+## 故障处理
 
-| 现象 | 原因 / 处理 |
-|---|---|
-| `waves_status` 说没起来 | 先手工跑一次服务看日志：`service\.venv\Scripts\python.exe -m rover.main`，工作目录是 `service` |
-| 端口被占 | 改插件 `port`，或找出占用者：`netstat -ano | findstr :9777` |
-| 命令回“未匹配” | 命令词不对。`waves_help` 带 topic 查一次；带正则触发器的命令不在帮助里列出 |
-| 命令回“未绑定特征码” | 先 `ww绑定<9位UID>` |
-| 命令回“暂无有效 token” | 先 `ww登录`（库街区） |
-| 卡片链接 500 / 打不开 | `mediaFormat` 设成 `html`；要 PNG 就装 Playwright 与 Chromium |
-| 首次命令很慢 | 服务在后台下载游戏素材（数百 MB），日志里有进度；下完就正常 |
-| 上游更新 | `service\.venv\Scripts\python.exe service\tools\update_plugins.py`，然后重载插件 |
+- 未绑定：按回执绑定自己的 UID；未登录：使用库街区网页登录入口。两者不是同一状态。
+- 等待授权：先呈现登录链接或进度，随后通过 waves_task_status 查询原任务，不重发登录命令。
+- 命令超时或结果不明：不自动重试账号操作；回执查询不会重新执行命令。
+- 端口冲突或实例身份不匹配：停止启用，审核本 Bot 配置；不接管或终止外部进程。
+- PNG 不可用：核对 Playwright/Chromium 与渲染回执，不把 HTML 链接说成已发图。
+- 账号名单显示“已保存登录凭证”：仅说明本机记录存在，不代表凭证实时有效或 QQ 在线。
 
-## 许可
+升级时通过插件总览正规停用自己的插件，待任务和自有服务退出后切换新版本目录。
+保持旧版本代码、配置备份与原数据根。回滚配置同样需确认无并发修改，不自动回退数据库结构。
 
-`rover/` 是 GPL-3.0，`tools/update_plugins.py` 同源；本仓库其余部分 GPL-3.0-or-later。
+## 前端页面归属
+
+当前账号管理页由共享 TelyinCore 原生页面提供，插件包提供工具、配置 Schema 和服务。
+仅更新本仓库不会改写 Core 页面。新版 Core 页面将启停统一放在插件总览，鸣潮页只查看状态、刷新名单和受保护地删除本机记录。
+不要把 Core 的不同许可源码复制进本插件包，也不要让插件安装器修改 Core 源码。

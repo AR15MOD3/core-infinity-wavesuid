@@ -31,7 +31,15 @@ def _sv_authorized(_sv: SV, event: Event, user_pm: int) -> bool:
         return False
     if event.group_id in _plugins.black_list or event.user_id in _plugins.black_list:
         return False
-    # 只有本机一个使用者, 群聊/私聊之分没有意义: 限定场景的命令(如 获取ck)照样能直接下
+    # Local transport does not erase the requested scene. A direct-only
+    # service must not become callable from a group through compatibility glue.
+    scene = {'group': 'GROUP', 'direct': 'DIRECT'}.get(event.user_type)
+    if scene is None:
+        return False
+    if _plugins.area not in ('SV', 'ALL', scene):
+        return False
+    if _sv.area not in ('ALL', scene):
+        return False
     if _plugins.white_list and _plugins.white_list != [""]:
         if event.user_id not in _plugins.white_list and event.group_id not in _plugins.white_list:
             return False
@@ -120,7 +128,8 @@ def collect_triggers(event: Event) -> List[Trigger]:
     return [t for t, _ in sorted(valid.items(), key=lambda x: (not x[0].prefix, x[1]))]
 
 
-async def dispatch(msg: MessageReceive, timeout: Optional[float] = None) -> Dict[str, Any]:
+async def dispatch(msg: MessageReceive, timeout: Optional[float] = None,
+                   receipt_sink=None) -> Dict[str, Any]:
     started = time.perf_counter()
     if timeout is None:
         timeout = float(core_config.get_config("command_timeout") or 300)
@@ -129,7 +138,7 @@ async def dispatch(msg: MessageReceive, timeout: Optional[float] = None) -> Dict
     event.task_id = uuid.uuid4().hex
 
     triggers = collect_triggers(event)
-    sink: List[Message] = []
+    sink: List[Message] = [] if receipt_sink is None else receipt_sink
     matched: List[str] = []
 
     if not triggers:
@@ -146,13 +155,17 @@ async def dispatch(msg: MessageReceive, timeout: Optional[float] = None) -> Dict
         bot = Bot(_event, sink)
         matched.append(f"{trigger.type}:{trigger.prefix}{trigger.keyword}")
         try:
-            await asyncio.wait_for(trigger.func(bot, _event), timeout=timeout)
+            async def invoke():
+                from rover.html_actions import role_recording_scope
+                with role_recording_scope():
+                    return await trigger.func(bot, _event)
+            await asyncio.wait_for(invoke(), timeout=timeout)
         except asyncio.TimeoutError:
-            logger.error(f"命令执行超时: {trigger.keyword}")
-            sink.append(Message("text", f"[执行超时] {trigger.keyword}"))
+            # Existing progress remains in the shared sink. Propagate the actual
+            # timeout so CommandJobs cannot declare it completed.
+            raise
         except Exception as e:
-            logger.exception(e)
-            sink.append(Message("text", f"[执行出错] {e}"))
+            raise
         if trigger.block:
             break
 
