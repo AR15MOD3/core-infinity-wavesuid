@@ -1,7 +1,19 @@
-# core-infinity-wavesuid 0.4.3 · QQ 群原生鸣潮
+# core-infinity-wavesuid 0.4.4 · QQ 群原生鸣潮
 
 TelyinCore Infinity API 1 的非官方鸣潮查询桥接，使用 XutheringWavesUID / dsh-plugin-waves 服务兼容层。
 不代表上游作者背书；桥接代码 GPL-3.0-or-later，原服务兼容层 GPL-3.0，合并分发按 GPL-3.0，见 NOTICE.md 与 service/UPSTREAM.md。
+
+## 运行环境
+
+鸣潮查询是 QQ 连接（`core-infinity-qq`）的扩展。Windows 的完整群路由、静候门控和总览平台标签随 Core beta.0.5.6.4 提供。管理员在同一个 Bot 上启用两者，群成员在已允许的 QQ 群中使用命令。
+
+| Core 宿主 | 支持情况 | 验证范围与条件 |
+| --- | --- | --- |
+| Windows | 支持 | 已验证真实 QQ 群的命令和回执。图片需要 Chromium。 |
+| Linux | 有条件支持 | 已在 Linux 原生 GsCore 验证群命令和隔离回执。实际使用需要可用的 QQ 群连接；图片还需要 Chromium 及其系统依赖。真实 QQ 群和手机公网登录尚待端到端验收。 |
+| macOS | 未声明 | 尚无完整宿主验收记录。 |
+
+网页登录由各 Bot 管理员自行配置公网 HTTPS 入口，群成员可以使用手机浏览器。账号数据保存在对应 Bot 的数据目录。
 
 ## QQ 群原生模式
 
@@ -45,7 +57,7 @@ QQ 群查询直接发送上游的文字或图片。帮助、体力和练度排�
 - 必须 autoStart=true，明确 python/serviceDir/port/dataDir；只管理本插件创建的进程。手工服务模式不再自动接管。
 - 数据目录首次必须为空；独占 OS 文件锁及 owner 标记避免跨 Bot/并发实例误用。
 - 启动实例具有随机令牌，健康信息核对 scope/实例哈希与自有进程树。命令认证阻止端口替换时误投；不重定向、不走环境代理、不自动重试命令。
-- Windows 用 suspended spawn + Job Object 管理 venv 启动器及其后代。POSIX 为独立进程组，尚未在 Linux/macOS 实机验收。
+- Windows 用 suspended spawn + Job Object 管理 venv 启动器及其后代。旧版 Rover 服务在 POSIX 上使用独立进程组，其完整部署尚待实机验收。
 - 保留 Core 的不可逆生命周期 guard。受限宿主不能凭插件自行恢复/伪造权限，失败应交由原宿主处理。
 - 本机 Python 插件与同用户进程是可信执行环境，以上误用防护不是恶意代码沙箱。
 
@@ -61,7 +73,7 @@ QQ 群查询直接发送上游的文字或图片。帮助、体力和练度排�
 ```
 
 确需安装时，将 `-Plan` 换为 `-AllowDownloads -WithPlaywright`。PNG 需要 Playwright 与 Chromium。
-Linux/macOS 对应参数为 `--service-dir --owner --config-path --data-dir --port --plan`，安装用 `--allow-downloads --playwright`；该分支尚未实机验证。
+Linux/macOS 对应参数为 `--service-dir --owner --config-path --data-dir --port --plan`，安装用 `--allow-downloads --playwright`。这组参数属于旧版 Rover 安装器；原生群命令的验证范围见“运行环境”。
 
 安装器向新版本目录复制全部服务适配文件（包括 scoped_main.py / scope_identity.py），不会覆盖不同内容的旧目录。
 升级应选择新的服务版本目录，先停用自己拥有的旧插件，再人工审核独立配置中的 serviceDir/python 后切换；不自动终止其他进程。
