@@ -62,6 +62,8 @@ class WavesAccounts:
         if not config.is_file():raise ValueError('当前 Bot 尚未配置鸣潮插件')
         data=json.loads(config.read_text(encoding='utf-8-sig'))
         if data.get('ownerBot')!=self.bot:raise ValueError('鸣潮配置归属不匹配')
+        if data.get('backend') == 'gscore':
+            raise ValueError('原生鸣潮账号通过 QQ 群内的 ww 命令管理')
         root=safe(Path(str(data.get('dataDir') or '')))
         if not Path(str(data.get('dataDir') or '')).is_absolute() or self.resource not in root.parents:
             raise ValueError('鸣潮数据须位于当前 Bot 私有目录')
@@ -186,6 +188,12 @@ class WavesAccounts:
 
 def handle(context, action, payload):
     """Operator-only host call, never registered as an agent tool."""
+    if action in ("environment", "install_native"):
+        if payload != {}:
+            raise ValueError("环境操作仅接受当前 Bot 的宿主配置")
+        import runpy
+        setup = runpy.run_path(str(Path(__file__).parent / "tools/setup_environment.py"))
+        return setup["handle"](context, action)
     admin=WavesAccounts(context)
     if action=='accounts':
         if payload!={}:raise ValueError('名单读取不接受额外参数')

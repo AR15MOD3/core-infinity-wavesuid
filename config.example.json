@@ -8,5 +8,9 @@
   "scene": "group",
   "commandTimeout": 90,
   "ownerBot": "",
-  "dataDir": ""
+  "dataDir": "",
+  "backend": "rover",
+  "nativePort": 18765,
+  "nativeLoginPort": 0,
+  "nativeLoginUrl": ""
 }

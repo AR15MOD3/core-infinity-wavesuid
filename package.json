@@ -1,9 +1,10 @@
 {
   "name": "core-infinity-wavesuid",
-  "version": "0.3.2",
+  "version": "0.4.3",
+  "repository": "https://github.com/AR15MOD3/core-infinity-wavesuid",
   "author": "AR15MOD3",
   "license": "GPL-3.0-or-later",
-  "description": "把 XutheringWavesUID 的鸣潮查询接进 TelyinCore：角色与武器查询、面板、深渊、抽卡、体力、排行。非官方移植。",
+  "description": "通过同一 Bot 的 QQ 连接将群内 ww 命令直接交给原生 GsCore。兼容既有 Rover 查询：角色与武器查询、面板、深渊、抽卡、体力、排行。非官方移植。",
   "keywords": [
     "core-infinity",
     "telyincore",
@@ -29,6 +30,14 @@
       "delete_account": {
         "mutates": true,
         "label": "删除本 Bot 保存的账号绑定和登录凭证"
+      },
+      "environment": {
+        "mutates": false,
+        "label": "检测当前 Bot 的鸣潮运行环境"
+      },
+      "install_native": {
+        "mutates": true,
+        "label": "为当前 Bot 下载并安装原生鸣潮依赖和 Chromium"
       }
     }
   }

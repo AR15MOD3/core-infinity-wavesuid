@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>鸣潮查询 · 账号管理</title>
+<title>鸣潮查询 · 插件设置</title>
 <style>
 :root{color-scheme:light dark;font:14px/1.65 system-ui,sans-serif;color:light-dark(#29313b,#eee);background:light-dark(#fff,#202127)}
 *{box-sizing:border-box}body{margin:0;padding:20px}h1{font-size:21px;margin:0 0 8px}h2{font-size:16px;margin:0}p{margin:8px 0}.hint{color:light-dark(#657080,#b6beca);font-size:13px}
@@ -8,10 +8,77 @@
 button{font:inherit;padding:8px 14px;border:1px solid light-dark(#cbd3df,#62636a);border-radius:8px;background:transparent;color:inherit;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}
 .table{overflow:auto;margin:14px 0}table{width:100%;min-width:640px;border-collapse:collapse}th,td{text-align:left;padding:12px;border-bottom:1px solid light-dark(#e1e5ec,#494a52)}th{font-weight:500;color:light-dark(#657080,#b6beca)}
 #message{white-space:pre-wrap}#count{font-weight:500}.danger{color:light-dark(#a03b34,#ffb3ac)}@media(max-width:550px){body{padding:10px}.card{padding:12px}}
+h3{font-size:14px;margin:18px 0 4px}input,select{max-width:100%;font:inherit}#checkUrl{width:100%}pre,#envState{white-space:pre-wrap;overflow-wrap:anywhere}pre{background:light-dark(#f4f6f8,#292d35);padding:10px;border-radius:6px}details{margin-top:12px}
+
+/* The plugin page is a standalone iframe. Match the QQ deployment panel's
+   typography and spacing from Core's world-style.css inside this document. */
+:root{
+ --ink:light-dark(#293443,#e6eaf0);--muted:light-dark(#535f70,#a6b7cb);--faint:light-dark(#5c6878,#aebac7);
+ --line:light-dark(#d5dce6,#455361);--wash:light-dark(#f7f9fc,#252d37);
+ --accent:light-dark(#3e6089,#abcff4);--accent-line:light-dark(#52749e,#7998bd);
+ --accent-wash:light-dark(rgb(82 116 158 / 8%),rgb(150 184 220 / 12%));
+ font:15px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif;color:var(--ink)
+}
+body{max-width:1000px;margin:auto}
+.page-head,.field-row,.save-row,.service-strip,.service-identity,.connection-tools,.actions{display:flex;align-items:center;flex-wrap:wrap}
+.page-head,.field-row,.save-row{gap:10px}.page-head,.service-strip,.connection-tools{justify-content:space-between}
+.page-head h1{margin:0}.page-head button,.field-row button{color:var(--accent);border-color:transparent}
+#loginPanel{background:light-dark(#fcfdff,#202127)}
+.card{border-color:var(--line)}.intro{margin:3px 0 14px}
+.service-strip{gap:10px 18px;padding:11px 14px;min-height:52px;border:1px solid var(--line);border-radius:10px;background:var(--wash)}
+.service-identity{gap:12px}.service-name,#botName{color:var(--muted);font-size:12px}
+.badge{padding:3px 8px;white-space:nowrap;border-radius:999px;font-size:11px;color:var(--faint)}
+.badge[data-ready="yes"]{color:var(--accent);background:var(--accent-wash)}
+.connection-tools{margin-top:12px;gap:10px 16px}.actions{gap:8px 12px;margin-top:12px}
+button,input,select{font:inherit;font-size:14px}button{padding:6px 12px;min-height:34px;border-radius:10px;font-size:13px}
+.connection-tools button{min-height:36px}.quiet{color:var(--muted);border-color:transparent}
+button:hover:not(:disabled){background:var(--wash)}button.primary{color:var(--accent);border-color:var(--accent-line);background:var(--accent-wash);font-weight:600}
+#setupSteps{margin-top:14px;padding:14px 16px;border:1px solid var(--line);border-radius:10px}
+.steps{margin:0;padding-inline-start:1.4rem;list-style:none}.steps li{padding-block:6px}.steps .badge{margin-inline-start:8px}
+.steps p{margin:0;font-size:11px;color:var(--faint)}.steps b{font-weight:inherit}
+.settings{display:grid;grid-template-columns:9em minmax(0,1fr);align-items:center;gap:8px 14px;margin:12px 0}.settings>input,.settings>select{width:min(100%,32em)}input,select{padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:transparent;color:inherit}.field-row input{width:7em}.config-details{margin:9px 0}.config-details summary{color:var(--accent);cursor:pointer;font-size:13px}.config-details p{font-size:13px}.save-row{margin:12px 0}.hint{color:var(--muted)}#envState:empty,#localState:empty{display:none}pre{font-size:13px}
+@media(max-width:520px){.settings{grid-template-columns:1fr;gap:4px}.actions{margin-top:0}.field-row{gap:3px}.save-row{align-items:flex-start}.card{margin:12px 0}.head{gap:6px}}
 </style></head><body>
-<h1>鸣潮查询 · 账号管理</h1>
-<p class="hint">查看当前 Bot 的鸣潮账号与本机登录凭证。启用、停用及升级请在插件总览操作。</p>
-<section class="card"><div class="head"><h2>插件状态</h2><button id="overview" type="button">前往插件总览 →</button></div><p id="status">正在确认页面接口…</p></section>
+<header class="page-head"><h1>鸣潮查询</h1><button id="overview" type="button">插件总览 →</button></header>
+<section id="loginPanel" class="card">
+<h2>QQ群网页登录</h2>
+<p class="hint intro">群成员发送 <code>ww登录</code>，即可用手机打开三分钟有效的登录页。</p>
+<div id="deployment">
+<div class="service-strip">
+ <div class="service-identity"><span class="service-name">本机环境</span><span id="readyState" class="badge">待检测</span></div>
+ <span id="botName"></span>
+</div>
+<div class="connection-tools">
+ <div class="actions"><button id="install" class="primary" disabled>一键安装环境</button><button id="configure" class="primary" hidden>配置登录入口</button><button id="inspect" class="quiet" disabled>重新检测</button></div>
+ <button id="setupToggle" class="quiet" aria-controls="setupSteps" aria-expanded="true">收起首次部署步骤</button>
+</div>
+<p id="envState" class="hint" role="status"></p>
+<div id="setupSteps">
+<ol class="steps" role="list">
+ <li><span>准备当前 Bot 的本机登录入口</span><span id="localBadge" class="badge">待检测</span><p id="prepareHint">启用 QQ 接入，将原群加入允许名单。</p></li>
+ <li><span id="signTitle">在 Bot 主机登录 Tailscale</span><p id="signHelp">首次使用先安装客户端。浏览器核对设备后点 <b>Connect</b>，Windows 欢迎窗口点 <b>Close</b>。</p><p id="domainHelp" hidden>将域名解析到代理主机，并配置有效的 HTTPS 证书。</p></li>
+ <li><span id="publicTitle">授权 Funnel 并保存公网地址</span><span id="urlBadge" class="badge">待配置</span><p id="publicHelp">运行下方转发命令，在官方授权页点 <b>Enable Funnel</b>，再填入命令返回的 HTTPS 地址。</p><p id="forwardHelp" hidden>将该域名转发到本机网页登录端口，再填入公网 HTTPS 地址。</p></li>
+ <li><span>回原群发送 ww登录</span><p>先用手机移动网络打开测试地址，核对校验码，再发送指令并打开群回复中的链接。</p></li>
+</ol>
+</div>
+</div>
+<div class="settings">
+<label for="provider">接入方式</label><select id="provider"><option value="funnel">Tailscale Funnel</option><option value="proxy">自有域名或反向代理</option></select>
+<label for="loginPort">本机登录端口</label><div class="field-row"><input id="loginPort" type="number" min="0" max="65535" disabled><button id="suggestPort" disabled>使用推荐端口</button></div>
+</div>
+<details class="config-details" id="forwardDetails"><summary id="forwardLabel">查看转发命令</summary>
+<div id="funnelGuide"><p>首次使用请在 Bot 主机安装 Tailscale 并登录自己的账号。先运行 <code>tailscale funnel status</code>，选择空闲的公网端口，再在 Bot 主机的管理员终端执行下方命令。</p>
+<label>公网端口 <select id="funnelPort"><option>443</option><option>8443</option><option>10000</option></select></label>
+<p class="hint">首次启用按官方页面提示开启 MagicDNS 和 HTTPS。关闭授权页后，如终端提示重新执行，请再运行同一条命令。</p></div>
+<div id="proxyGuide" hidden><p>在 Bot 主机使用 Caddy 时，把下方站点块加入 Caddyfile 并重载。替换示例域名，并允许公网访问 80、443。</p></div>
+<pre id="proxyExample"></pre>
+</details>
+<div class="settings"><label for="loginUrl">公网 HTTPS 地址</label><input id="loginUrl" type="url" placeholder="https://…" disabled></div>
+<div class="save-row"><button class="primary" id="saveLogin" type="button" disabled>保存登录设置</button><span id="loginState" class="hint" role="status">正在读取登录设置…</span></div>
+<p id="localState" class="hint"></p>
+<label id="phoneCheck" hidden>手机测试地址 <input id="checkUrl" readonly></label>
+<details class="config-details"><summary>环境与数据存放</summary><p id="envDetail"></p><p id="status">正在确认插件状态…</p><p>QQ 绑定、登录凭证和短时登录缓存保存在当前 Bot 的本机档案。端口填 0 并清空公网地址可关闭本机入口。</p></details>
+</section>
 <section class="card"><div class="head"><h2>已保存账号</h2><button id="refresh" type="button" disabled>刷新名单</button></div>
 <p id="count">账号名单尚未读取</p>
 <div class="table"><table><thead><tr><th scope="col">QQ 用户</th><th scope="col">鸣潮 UID</th><th scope="col">绑定</th><th scope="col">登录凭证</th><th scope="col">操作</th></tr></thead><tbody id="accounts"></tbody></table></div>
@@ -25,9 +92,115 @@ let config=null,current=null,busy=false,sequence=0,readGeneration=0;
 function send(value){parent.postMessage(value,'*');}
 function message(value){$('message').textContent=value;}
 function buttons(){
- $('refresh').disabled=busy||!config?.pageActions?.accounts;
+ $('refresh').disabled=busy||!config?.pageActions?.accounts||fieldValue('backend')?.value==='gscore';
  for(const button of $('accounts').querySelectorAll('button'))button.disabled=busy||current?.deleteAllowed!==true;
 }
+let environment=null, checking=false, checkTimer=null;
+let setupTouched=false, providerTouched=false;
+function toggleSteps(open){
+ $('setupSteps').hidden=!open;
+ $('setupToggle').setAttribute('aria-expanded',String(open));
+ $('setupToggle').textContent=open?'收起首次部署步骤':'查看首次部署步骤';
+}
+$('setupToggle').addEventListener('click',()=>{setupTouched=true;toggleSteps($('setupSteps').hidden);});
+$('provider').addEventListener('change',()=>{providerTouched=true;});
+function guide(){
+ const port=Number($('loginPort').value);
+ const funnel=$('provider').value==='funnel';
+ $('signTitle').textContent=funnel?'在 Bot 主机登录 Tailscale':'准备自己的域名';
+ $('publicTitle').textContent=funnel?'授权 Funnel 并保存公网地址':'配置反向代理并保存公网地址';
+ $('signHelp').hidden=!funnel;$('domainHelp').hidden=funnel;
+ $('publicHelp').hidden=!funnel;$('forwardHelp').hidden=funnel;
+ $('forwardLabel').textContent=funnel?'查看转发命令':'查看 Caddy 配置示例';
+ $('proxyGuide').hidden=funnel;$('funnelGuide').hidden=!funnel;
+ if(!Number.isInteger(port)||port<1024||port>65535){$('proxyExample').textContent='选择本机登录端口后显示转发配置。';return;}
+ let name='login.example.com';
+ try{const u=new URL($('loginUrl').value);if(u.protocol==='https:' && /^[a-z0-9.-]+$/i.test(u.hostname))name=u.host;}catch{}
+ const target='http://127.0.0.1:'+port;
+ $('proxyExample').textContent=funnel?'tailscale funnel --bg --https='+$('funnelPort').value+' '+target:
+  name+' {\n    reverse_proxy '+target+'\n}';
+}
+function setupButtons(){
+ const enabled=!!config?.pageActions?.environment && !checking && !busy && !loginSaving;
+ $('inspect').disabled=!enabled;
+ $('install').disabled=!enabled || !config?.pageActions?.install_native || !environment?.canInstall || environment.ready || environment.running;
+}
+async function inspect(install=false){
+ if(checking || busy || loginSaving)return;
+ clearTimeout(checkTimer);checking=true;setupButtons();
+ try{
+  let notice='';
+  if(install)notice=(await request('install_native',{})).message;
+  const result=await request('environment',{});
+  environment=result;
+  const items=Object.entries(result.checks).map(([name,ok])=>name+(ok?' ✓':' 缺失'));
+  $('botName').textContent='当前 Bot · '+result.bot;
+  $('readyState').textContent=result.running?'安装中':result.ready?'已就绪':'缺少组件';
+  $('readyState').setAttribute('data-ready',result.ready?'yes':'no');
+  $('install').hidden=result.ready && !result.running;
+  $('configure').hidden=!$('install').hidden;
+  $('localBadge').textContent=result.listening?'已就绪':'待启动';
+  $('localBadge').setAttribute('data-ready',result.listening?'yes':'no');
+  $('prepareHint').textContent=result.listening?'确认 QQ 接入已启用，原群已加入允许名单。':'在当前 Bot 启用 QQ 并允许测试群。缺少组件时点「一键安装环境」，再保存推荐端口并启用鸣潮。';
+  $('envDetail').textContent=['Core Python '+result.hostPython,result.uv?'uv 已安装':'安装时自动准备 uv',...items].join(' · ');
+  $('envState').textContent=[
+    result.running?'正在'+(result.progress.message||'启动安装'):result.ready?'':result.progress.message,
+    !result.canInstall?'请先在插件总览停用鸣潮，再修复缺失的组件。':notice].filter(Boolean).join('\n');
+  $('localState').textContent=(result.listening?'本机入口已响应':'本机入口尚未响应')+' · 此 Bot 的入口校验码 '+result.code;
+  showLogin();
+  if(result.running)checkTimer=setTimeout(()=>void inspect(),2500);
+ }catch(error){$('envState').textContent=error.message;}
+ finally{checking=false;setupButtons();}
+}
+$('configure').addEventListener('click',()=>$('provider').focus());
+$('inspect').addEventListener('click',()=>void inspect());
+$('install').addEventListener('click',()=>void inspect(true));
+for(const id of ['provider','funnelPort'])$(id).addEventListener('change',guide);
+let loginDirty=false, loginSaving=false, loginRevision='';
+const fieldValue=(key)=>config?.fields?.find(f=>f.path.length===1 && f.path[0]===key);
+function showLogin(){
+ const port=fieldValue('nativeLoginPort'), url=fieldValue('nativeLoginUrl');
+ const native=fieldValue('backend')?.value==='gscore';
+ if(!providerTouched && url?.value){
+  try{$('provider').value=new URL(url.value).hostname.endsWith('.ts.net')?'funnel':'proxy';}catch{}
+ }
+ $('urlBadge').textContent=url?.value?'地址已保存':'待配置';
+ $('urlBadge').setAttribute('data-ready',url?.value?'yes':'no');
+ if(!setupTouched)toggleSteps(!url?.value);
+ const editable=(native || environment?.ready) && !!port && !!url;
+ for(const id of ['loginPort','loginUrl','saveLogin'])$(id).disabled=!editable || loginSaving;
+ if(!loginDirty && !loginSaving){
+  $('loginPort').value=native?(port?.value??0):(port?.value || environment?.loginPort || 0);$('loginUrl').value=url?.value??'';
+  loginRevision=config?.revision||'';
+  $('loginState').textContent=!editable?'请先完成上方环境安装。':port.value&&url.value?'已保存入口配置，请用手机测试连通性。':port.value?'本机端口已保存，等待公网地址。':native?'本机入口已关闭。可使用推荐端口后保存，若插件停用请在总览启用。':'保存后切换到原生后端；在插件总览启用鸣潮。';
+ }
+ $('suggestPort').disabled=!editable || loginSaving || !environment?.loginPort;
+ guide();setupButtons();
+ $('phoneCheck').hidden=!(native && port?.value && url?.value);
+ $('checkUrl').value=$('phoneCheck').hidden?'':String(url.value).replace(/\/$/,'')+'/waves/login-status';
+}
+$('suggestPort').addEventListener('click',()=>{if(environment){$('loginPort').value=environment.loginPort;loginDirty=true;guide();}});
+for(const id of ['loginPort','loginUrl'])$(id).addEventListener('input',()=>{loginDirty=true;guide();});
+$('saveLogin').addEventListener('click',()=>{
+ if(loginSaving || !config || $('saveLogin').disabled)return;
+ const port=Number($('loginPort').value), url=$('loginUrl').value.trim();
+ if(!Number.isInteger(port) || port!==0 && (port<1024 || port>65535 || port===(environment?.nativePort ?? fieldValue('nativePort')?.value))){
+  $('loginState').textContent='请选择与 GsCore 不同的 1024 至 65535 端口，或填 0 关闭。';return;
+ }
+ if(url){
+  try{
+   const u=new URL(url);
+   if(!port || u.protocol!=='https:' || !/^(?:[a-z0-9-]+\.)+[a-z][a-z0-9-]*$/i.test(u.hostname) || u.hostname.endsWith('.localhost') || u.pathname!=='/' || u.username || u.password || u.port==='0' || /[?#\\\s]/.test(url))throw Error();
+  }catch{$('loginState').textContent='请填写完整的 HTTPS 域名并选择本机端口。';return;}
+ }
+ loginSaving=true;showLogin();$('loginState').textContent='正在保存当前 Bot 的登录设置…';
+ const changes=[{path:['nativeLoginPort'],value:port},{path:['nativeLoginUrl'],value:url.replace(/\/$/,'')}];
+ if(fieldValue('backend')?.value!=='gscore'){
+  if(!environment?.ready){loginSaving=false;showLogin();return;}
+  changes.push({path:['backend'],value:'gscore'},{path:['ownerBot'],value:environment.bot},{path:['nativePort'],value:environment.nativePort});
+ }
+ send({type:'telyincore:config:save',revision:loginRevision,changes});
+});
 function label(account){
  if(!account.loginSaved)return account.bound?'仅绑定 UID，未保存登录凭证':'未保存登录凭证';
  if(account.loginState==='登录信息已标记失效')return '登录凭证已标记失效';
@@ -40,7 +213,7 @@ function request(action,payload){
  if(!config?.pageActions?.[action])return Promise.reject(Error('当前 Core 尚不支持此页面接口，请更新宿主；未执行操作。'));
  const id=String(++sequence);
  return new Promise((resolve,reject)=>{
-  const timer=setTimeout(()=>{pending.delete(id);reject(Error('操作回执超时，结果未确认；请刷新核对，不要重复提交删除。'));},15000);
+  const timer=setTimeout(()=>{pending.delete(id);reject(Error('操作回执超时，请刷新核对结果。'));},action==='install_native'?120000:15000);
   pending.set(id,{resolve,reject,timer});
   send({type:'telyincore:page:request',id,action,payload,revision:config.revision});
  });
@@ -63,7 +236,7 @@ async function load(){
   }
   message(value.accounts.length?'':'暂未保存鸣潮账号');
  }catch(error){current=null;$('accounts').replaceChildren();$('count').textContent='账号名单暂不可用';message(error.message||'读取失败');}
- finally{busy=false;buttons();}
+ finally{busy=false;buttons();setupButtons();}
 }
 async function erase(account){
  if(busy||current?.deleteAllowed!==true)return;
@@ -74,16 +247,27 @@ async function erase(account){
   if(value?.ok!==true)throw Error('删除结果未确认，请刷新核对');
   succeeded=true;message(value.message||'已删除本机记录');
  }catch(error){message(error.message||'结果未确认，不要重复删除');}
- finally{busy=false;buttons();}
+ finally{busy=false;buttons();setupButtons();}
  if(succeeded)await load();
 }
 window.addEventListener('message',event=>{
  if(event.source!==parent||!event.data||typeof event.data!=='object')return;
  const data=event.data;
  if(data.type==='telyincore:config:state'){
-  config=data.config;buttons();
-  if(config?.pageActions?.accounts){if(data.active===true)void load();}
+  config=data.config;buttons();showLogin();
+  if(fieldValue('backend')?.value==='gscore'){
+   $('status').textContent='当前 Bot 使用原生 GsCore。';
+   $('count').textContent='原生账号的登录和绑定在 QQ 群内管理。';
+  }else if(config?.pageActions?.accounts){if(data.active===true && !config.pageActions.environment)void load();}
   else{$('status').textContent='宿主页面接口尚未接入';message('请更新支持 pageBackend v1 的共享 Core；没有执行账号操作。');}
+ }
+ if(data.type==='telyincore:config:state' && data.active && config?.pageActions?.environment){
+  void inspect().then(()=>{if(fieldValue('backend')?.value!=='gscore' && !environment?.running && config.pageActions.accounts)void load();});
+ }
+ if(data.type==='telyincore:config:saved' && loginSaving){
+  loginSaving=false;loginDirty=!data.ok;showLogin();
+  if(data.ok)send({type:'telyincore:config:get'});
+  else $('loginState').textContent=data.message||'保存失败，请重新打开页面核对配置。';
  }
  if(data.type==='telyincore:page:result'){
   const row=pending.get(data.id);if(!row)return;pending.delete(data.id);clearTimeout(row.timer);

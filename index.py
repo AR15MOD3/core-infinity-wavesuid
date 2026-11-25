@@ -252,7 +252,7 @@ def _login_kind(text, prefixes):
             break
     word = word.lower()
     words = ("登录", "登陆", "登入", "登龙", "login", "dl", "邮箱登录", "国际服登录",
-             "抽卡登录", "抽卡登陆", "抽卡登入", "云鸣潮登录", "云鸣潮登陆", "云登陆", "云登录", "云登入")
+             "抽卡登录", "抽卡登陆", "抽卡登入", "云鸣潮登录", "云鸣潮登陆", "云鸣潮登入", "云登陆", "云登录", "云登入")
     login = any(word.startswith(w) for w in words)
     return login, login and word not in words
 
@@ -497,6 +497,7 @@ def create(ctx):
 
     class Waves:
         # Nested I/O ownership is explicit; no worker is started by create().
+        native = None
         _status_io = status_io
         _tool_io = status_io
 
@@ -517,6 +518,19 @@ def create(ctx):
 
         def start(self):
             _require_host_runtime()
+            settings, issues = _scoped_config(ctx, folder)
+            if settings.get("backend") == "gscore":
+                if issues:
+                    raise ValueError("；".join(issues))
+                def load_sibling(name):
+                    spec = importlib.util.spec_from_file_location(name, folder / (name + ".py"))
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    return module
+                self.native = load_sibling("native_group").NativeGroup(
+                    ctx, settings, load_sibling("owned_child").OwnedChild, _login_kind, log)
+                self.native.start()
+                return
             try:
                 runtime.start()
             except Exception as exc:
@@ -525,9 +539,15 @@ def create(ctx):
         def stop(self):
             _require_host_runtime()
             status_io.assert_idle()
-            runtime.stop()
+            if self.native is not None:
+                self.native.stop()
+                self.native = None
+            else:
+                runtime.stop()
 
         def system_hooks(self):
+            if config().get("backend") == "gscore":
+                return {}
             from telyincore.system_calls import SystemHook
             return {'waves_login_result':SystemHook(self._prepare_login_result)}
 
@@ -561,6 +581,8 @@ def create(ctx):
 
         def tools(self):
             _require_host_runtime()
+            if config().get("backend") == "gscore":
+                return []
             from telyincore.tools import ToolDef, ToolTag
 
             return [ToolDef(

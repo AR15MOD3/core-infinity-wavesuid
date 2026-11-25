@@ -76,6 +76,43 @@
       "title": "独立数据目录",
       "description": "绝对路径；每个 Bot 独立，位于插件包与服务代码目录之外，不可复制其他 Bot 数据。",
       "default": ""
+    },
+    "backend": {
+      "type": "string",
+      "title": "鸣潮后端",
+      "enum": [
+        "rover",
+        "gscore"
+      ],
+      "default": "rover"
+    },
+    "nativePort": {
+      "type": "integer",
+      "title": "本 Bot 原生 GsCore 端口",
+      "minimum": 1024,
+      "maximum": 65535,
+      "default": 18765
+    },
+    "nativeLoginPort": {
+      "type": "integer",
+      "title": "本 Bot 普通网页登录入口端口（0 表示关闭）",
+      "anyOf": [
+        {
+          "const": 0
+        },
+        {
+          "minimum": 1024,
+          "maximum": 65535
+        }
+      ],
+      "default": 0,
+      "description": "仅监听 127.0.0.1。每个 Bot 独占一个端口，0 表示关闭内置入口。"
+    },
+    "nativeLoginUrl": {
+      "type": "string",
+      "title": "群成员使用的 HTTPS 登录域名",
+      "description": "普通 ww登录 的公网入口。将该域名代理到当前 Bot 的本机网页登录端口，留空表示尚未配置。",
+      "default": ""
     }
   }
 }

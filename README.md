@@ -1,9 +1,36 @@
-# core-infinity-wavesuid 0.3.2 · 插件自带账号管理页
+# core-infinity-wavesuid 0.4.3 · QQ 群原生鸣潮
 
 TelyinCore Infinity API 1 的非官方鸣潮查询桥接，使用 XutheringWavesUID / dsh-plugin-waves 服务兼容层。
 不代表上游作者背书；桥接代码 GPL-3.0-or-later，原服务兼容层 GPL-3.0，合并分发按 GPL-3.0，见 NOTICE.md 与 service/UPSTREAM.md。
 
-## 数据流
+## QQ 群原生模式
+
+同一 Bot 启用 QQ 连接和鸣潮查询。在 QQ 白名单群中发 `ww帮助`、`ww体力` 等原生命令，QQ 插件按真实群号、发送者和消息号交给原生 GsCore。上游的文本、图片和订阅经同一 QQ 连接回群。OneBot 群按钮显示为可手动发送的指令。原生模式需要配套的 QQ 群路由版本。
+
+管理员在插件设置页打开「QQ群网页登录」，检测环境后点击「一键安装环境」。安装进度保存在当前 Bot 的 runtime/setup，重新打开页面可继续查看。完成后保存推荐端口与公网地址，在插件总览启用鸣潮。设置页提供自有域名反向代理与 Tailscale Funnel 两种配置引导；手机使用移动网络打开连通测试地址，核对页面显示的 Bot 入口校验码。
+
+也可在目标机器用 Python 3.11+ 和 uv 手动安装。每个 Bot 使用独立端口和独立的 `runtime/gscore`，该目录包含上游源码、Python 环境、数据库、素材和服务日志。在插件目录运行下例，将安装目录、Bot 名称和端口改为本机的值。
+
+```powershell
+python tools/install_native.py --config "<安装目录>/bots/<Bot 名称>/infinity/plugins/core-infinity-wavesuid/config.json" --port 18765
+```
+
+原生服务启动时会校验上游命令注册等五处使用插件路径的源码。插件归属按该 Bot 的 `gsuid_core/plugins` 和 `gsuid_core/buildin_plugins` 目录识别。即使安装目录本身也叫 `plugins`，鸣潮命令仍归到 `XutheringWavesUID`。绑定记录中的多个群号逐个完整匹配，练度排行只取当前群的成员。源码版本无法核对时，启动日志会给出对应的文件名。
+
+成功安装后，按正常插件流程启用或重新加载。实际 QQ 群中使用 `ww绑定` 等上游命令管理账号。
+
+### 群成员网页登录
+
+在当前 Bot 的鸣潮插件设置页打开「QQ群网页登录」。选择独占的本机登录端口，将任意 HTTPS 反向代理的上游设为 `http://127.0.0.1:<登录端口>`，并在插件内保存公网域名。使用手机移动网络打开页面给出的连通测试地址，再在群里发送 `ww登录`。手机号和验证码在网页登录页填写。普通登录会话由该 Bot 管理。多个 Bot 分别配置端口和入口域名。
+
+内置入口默认关闭。已有 XutheringWavesUID 外置登录配置的安装可继续使用原配置。新入口支持普通 `ww登录`，邮箱、云登录等扩展流程沿用上游配置。公网 HTTPS 转发需要安装者提供可用的入口，插件可配合现有反向代理或隧道服务。
+
+
+QQ 群查询直接发送上游的文字或图片。帮助、体力和练度排行回执确认送达后，插件在内存里短暂保留查询类型和必要的结果字段。该成员在同群追问，或有人明确引用本群回执时，正常对话可读取这份事实记录。图片只记录已发图。登录链接、凭证和图片内容不会进入这份记录。
+
+既有 Rover 配置默认使用 `backend=rover`，切回该值并重新加载即可使用原模式。
+
+## Rover 兼容模式的数据流
 
 `waves_command` → 当前 Bot 的独立本机服务 → 文本与 PNG 卡片链接 → 官方 QQ 插件 `qq_send_image`。
 本插件不直接发送 QQ，不提供生图，不复制其他 Bot 账号、人设、聊天或记忆。
@@ -78,4 +105,4 @@ waves_help 返回命令资料及可用卡片地址，不直接发送消息、不
 离线测试入口：`python -B -m unittest discover -s tests -v`（标准库，无真实登录或 QQ 外发）。
 
 页面脚本模拟测试：`node tests/test_page.mjs`（标准库，不进行网络请求）。
-包版本 0.3.2；服务/桥接协议仍为 0.3.1，两者作用不同，不需为页面更新替换服务数据库。
+Rover 兼容服务沿用 0.3.1 桥接协议。

@@ -11,7 +11,7 @@ const sent=[],parent={postMessage:value=>sent.push(value)};let listener;
 const window={addEventListener:(_name,fn)=>{listener=fn;}};
 const html=fs.readFileSync(new URL('../config.html',import.meta.url),'utf8');
 const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
-const context=vm.createContext({document:{getElementById:id=>ids[id],createElement:tag=>new Element(tag)},parent,window,setTimeout,clearTimeout,console});
+const context=vm.createContext({document:{getElementById:id=>ids[id]??=new Element(id),createElement:tag=>new Element(tag)},parent,window,setTimeout,clearTimeout,console});
 vm.runInContext(script,context);
 let checks=0;const check=fn=>{fn();checks++;};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));

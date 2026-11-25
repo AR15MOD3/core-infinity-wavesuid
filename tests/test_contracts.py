@@ -68,6 +68,7 @@ class Receipts(unittest.TestCase):
 
     def test_login_kind_uses_configured_prefix(self):
         self.assertEqual(bridge._login_kind('ww登录', ['ww']), (True, False))
+        self.assertEqual(bridge._login_kind('ww云鸣潮登入', ['ww']), (True, False))
         self.assertEqual(bridge._login_kind('ww登录 SYNTHETIC', ['ww']), (True, True))
         self.assertEqual(bridge._login_kind('ww卡片', ['ww']), (False, False))
 
